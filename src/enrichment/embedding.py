@@ -1,0 +1,106 @@
+"""Strategy 2: KNN corpus search — product-to-product embedding comparison.
+
+Replaces the old label-string similarity approach. Instead of comparing row
+text against category label words like "Dairy", this strategy compares the
+row's embedding against embeddings of already-labeled product rows stored in
+a persistent FAISS index (the reference corpus).
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+
+import pandas as pd
+
+from src.enrichment.corpus import (
+    CONFIDENCE_THRESHOLD_CATEGORY,
+    add_to_corpus,
+    build_seed_corpus,
+    knn_search,
+    load_corpus,
+    save_corpus,
+)
+
+logger = logging.getLogger(__name__)
+
+
+def embedding_enrich(
+    df: pd.DataFrame,
+    enrich_cols: list[str],
+    needs_enrichment: pd.Series,
+) -> tuple[pd.DataFrame, pd.Series]:
+    """
+    Use KNN corpus search to assign primary_category to unmatched rows.
+
+    For each row still needing enrichment, queries the FAISS corpus of
+    labeled product embeddings. If the top-K neighbors vote a category with
+    sufficient confidence, assigns it and adds the row to the corpus.
+
+    Stores top-3 neighbors in a pipeline-internal "_knn_neighbors" column
+    (JSON string) for use by Strategy 3's RAG prompt. This column must be
+    dropped by the orchestrator before final output.
+
+    Returns (modified_df, updated_needs_enrichment_mask).
+    """
+    if "primary_category" not in enrich_cols:
+        return df, needs_enrichment
+
+    mask = needs_enrichment & df["primary_category"].isna()
+    if not mask.any():
+        return df, needs_enrichment
+
+    # Ensure the internal neighbor column exists
+    if "_knn_neighbors" not in df.columns:
+        df["_knn_neighbors"] = None
+
+    # Load or seed the corpus
+    index, metadata = load_corpus()
+
+    if index is None or index.ntotal < 10:
+        logger.info("S2 KNN: corpus empty or too small, seeding from S1-resolved rows")
+        try:
+            build_seed_corpus(df)
+            index, metadata = load_corpus()
+        except ImportError:
+            logger.warning("S2 KNN: faiss not installed, skipping Strategy 2")
+            return df, needs_enrichment
+        except Exception as e:
+            logger.warning(f"S2 KNN: corpus seed failed: {e}")
+            return df, needs_enrichment
+
+    if index is None or index.ntotal < 10:
+        logger.info("S2 KNN: corpus still too small after seeding, skipping to S3")
+        return df, needs_enrichment
+
+    resolved = 0
+    for idx in df.index[mask]:
+        row = df.loc[idx]
+        try:
+            category, confidence, neighbors = knn_search(row, index, metadata)
+        except ImportError:
+            logger.warning("S2 KNN: faiss not installed, skipping Strategy 2")
+            break
+        except Exception as e:
+            logger.warning(f"S2 KNN: search failed for row {idx}: {e}")
+            neighbors = []
+            category = None
+            confidence = 0.0
+
+        # Store neighbors for S3 RAG prompt regardless of confidence
+        df.at[idx, "_knn_neighbors"] = json.dumps(neighbors)
+
+        if category is not None and confidence >= CONFIDENCE_THRESHOLD_CATEGORY:
+            df.at[idx, "primary_category"] = category
+            add_to_corpus(row, category, index, metadata)
+            resolved += 1
+
+    if resolved > 0:
+        try:
+            save_corpus(index, metadata)
+        except Exception as e:
+            logger.warning(f"S2 KNN: could not save corpus: {e}")
+
+    logger.info(f"S2 KNN: resolved {resolved} rows")
+    needs_enrichment = df[enrich_cols].isna().any(axis=1)
+    return df, needs_enrichment

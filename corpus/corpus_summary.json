@@ -1,0 +1,24 @@
+{
+  "built_at": "2026-04-13T20:54:15.235286+00:00",
+  "source": "USDA FoodData Central Branded Foods",
+  "total_vectors": 162441,
+  "category_distribution": {
+    "Snacks": 35199,
+    "Confectionery": 33999,
+    "Bakery": 33900,
+    "Dairy": 30569,
+    "Condiments": 10616,
+    "Beverages": 5980,
+    "Canned Foods": 4478,
+    "Frozen Foods": 4341,
+    "Pasta & Grains": 2028,
+    "Deli": 1324,
+    "Fruits": 3,
+    "Vegetables": 3,
+    "Baby Food": 1
+  },
+  "embedding_model": "all-MiniLM-L6-v2",
+  "min_text_len": 10,
+  "rows_dropped_unmapped": 297647,
+  "rows_dropped_short_text": 0
+}

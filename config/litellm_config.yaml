@@ -1,0 +1,10 @@
+models:
+  orchestrator:
+    model: "anthropic/claude-sonnet-4-20250514"
+    purpose: "Schema analysis, gap detection, orchestration reasoning"
+  codegen:
+    model: "deepseek/deepseek-coder"
+    purpose: "Python transformation function generation"
+  enrichment:
+    model: "groq/llama-3.3-70b-versatile"
+    purpose: "Row-level enrichment for ambiguous cases"

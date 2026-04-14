@@ -1,0 +1,29 @@
+[tool.poetry]
+name = "etl-pipeline"
+version = "0.1.0"
+description = "Schema-driven self-extending ETL pipeline with two-agent architecture"
+authors = ["aq"]
+packages = [{include = "src"}]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+pandas = "^2.2"
+langchain = "^0.3"
+langchain-core = "^0.3"
+langchain-anthropic = "^0.3"
+langgraph = "^0.4"
+litellm = "^1.55"
+python-dotenv = "^1.0"
+rapidfuzz = "^3.9"
+sentence-transformers = "^3.0"
+faiss-cpu = "^1.8"
+numpy = "^1.26"
+streamlit = "^1.56.0"
+tqdm = "^4.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
