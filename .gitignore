@@ -71,7 +71,7 @@ Thumbs.db
 # Claude files
 # =========================
 .claude/
-CLAUDE.MD
+CLAUDE.md
 
 # =========================
 # Misc
