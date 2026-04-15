@@ -31,6 +31,8 @@ from src.ui.components import (
     render_step_bar,
     render_source_profile,
     render_schema_delta,
+    render_missing_columns,
+    render_yaml_review,
     render_registry_results,
     render_code_review,
     render_dq_cards,
@@ -223,13 +225,18 @@ def step_schema_analysis():
             state.get("column_mapping", {}),
             state.get("gaps", []),
             state.get("unified_schema"),
+            missing_columns=state.get("missing_columns"),
+            derivable_gaps=state.get("derivable_gaps"),
         ),
         unsafe_allow_html=True,
     )
 
     # Summary
     n_mapped = len(state.get("column_mapping", {}))
-    n_gaps = len(state.get("gaps", []))
+    n_derivable = len(state.get("derivable_gaps", []))
+    n_missing = len(state.get("missing_columns", []))
+    n_total_gaps = n_derivable + n_missing
+
     st.markdown(
         f'<div class="metric-row">'
         f'<div class="metric-card">'
@@ -237,8 +244,14 @@ def step_schema_analysis():
         f'<div class="metric-value val-good">{n_mapped}</div>'
         f"</div>"
         f'<div class="metric-card">'
-        f'<div class="metric-label">Gaps Detected</div>'
-        f'<div class="metric-value {"val-warn" if n_gaps > 0 else "val-good"}">{n_gaps}</div>'
+        f'<div class="metric-label">Derivable Gaps</div>'
+        f'<div class="metric-value {"val-warn" if n_derivable > 0 else "val-good"}">{n_derivable}</div>'
+        f'<div class="metric-sub">Will be transformed</div>'
+        f"</div>"
+        f'<div class="metric-card">'
+        f'<div class="metric-label">Missing Columns</div>'
+        f'<div class="metric-value {"val-bad" if n_missing > 0 else "val-good"}">{n_missing}</div>'
+        f'<div class="metric-sub">No source data</div>'
         f"</div>"
         f"</div>",
         unsafe_allow_html=True,
@@ -254,17 +267,68 @@ def step_schema_analysis():
     for w in state.get("mapping_warnings", []):
         st.warning(w)
 
-    # HITL Gate 1: Approve mapping
+    # Missing columns HITL decision
+    missing_cols = state.get("missing_columns", [])
+    if missing_cols:
+        st.markdown(
+            '<div class="section-header">Missing Columns — No Source Data</div>',
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            render_missing_columns(missing_cols), unsafe_allow_html=True
+        )
+        st.markdown(
+            '<p style="color:#f0883e; font-size:0.85em; margin:8px 0 4px 0;">'
+            'The following required columns have no source data and cannot be derived. '
+            'Rows with null values in required columns will be quarantined.</p>',
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            '<p style="color:#8b949e; font-size:0.85em; margin:0 0 16px 0;">'
+            'You can exclude individual columns from the required schema for this run '
+            'to prevent them from triggering quarantine.</p>',
+            unsafe_allow_html=True,
+        )
+
+        decisions = {}
+        for mc in missing_cols:
+            col_name = mc["target_column"]
+            col_type = mc.get("target_type", "string")
+            exclude = st.checkbox(
+                f"Exclude `{col_name}` ({col_type}) from required schema",
+                key=f"missing_exclude_{col_name}",
+            )
+            decisions[col_name] = {"action": "exclude"} if exclude else {"action": "accept_null"}
+
+        state["missing_column_decisions"] = decisions
+        st.session_state["pipeline_state"] = state
+
+    # HITL Gate 1
     st.markdown("---")
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("Approve Mapping & Continue", type="primary", width="stretch"):
-            st.session_state["step"] = 2
-            st.rerun()
-    with col2:
-        if st.button("Back to Source Selection", width="stretch"):
-            st.session_state["step"] = 0
-            st.rerun()
+    if missing_cols:
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            if st.button("Force Continue (Quarantine Expected)", type="primary", width="stretch"):
+                st.session_state["step"] = 2
+                st.rerun()
+        with col2:
+            if st.button("Abort Ingestion", width="stretch"):
+                st.warning("Ingestion aborted. Missing columns cannot be filled from this source.")
+                st.session_state["step"] = 0
+        with col3:
+            if st.button("Back to Source Selection", width="stretch"):
+                st.session_state["step"] = 0
+                st.rerun()
+    else:
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("Approve Mapping & Continue", type="primary", width="stretch"):
+                st.session_state["step"] = 2
+                st.rerun()
+        with col2:
+            if st.button("Back to Source Selection", width="stretch"):
+                st.session_state["step"] = 0
+                st.rerun()
 
 
 # ── Step 2: Registry Check + Code Generation + HITL Code Review ─────
@@ -280,20 +344,35 @@ def step_code_generation():
 
     hits = state.get("block_registry_hits", {})
     misses = state.get("registry_misses", [])
+    derive_misses = [m for m in misses if m.get("action") == "DERIVE"]
 
     st.markdown(
         '<div class="section-header">Block Registry Lookup</div>',
         unsafe_allow_html=True,
     )
-    st.markdown(render_registry_results(hits, misses), unsafe_allow_html=True)
+    st.markdown(render_registry_results(hits, derive_misses), unsafe_allow_html=True)
 
-    if misses:
+    # Show YAML mapping review if a YAML was generated
+    yaml_path = state.get("mapping_yaml_path")
+    if yaml_path:
+        st.markdown(
+            '<div class="section-header">Declarative Column Operations (YAML)</div>',
+            unsafe_allow_html=True,
+        )
+        try:
+            from src.blocks.mapping_io import read_mapping_yaml
+            yaml_ops = read_mapping_yaml(yaml_path)
+            st.markdown(render_yaml_review(yaml_ops), unsafe_allow_html=True)
+        except Exception as e:
+            st.warning(f"Could not read YAML mapping: {e}")
+
+    if derive_misses:
         st.markdown(
             '<div class="section-header">Code Generation (Agent 2)</div>',
             unsafe_allow_html=True,
         )
 
-        with st.spinner(f"Generating {len(misses)} transform function(s) via LLM..."):
+        with st.spinner(f"Generating {len(derive_misses)} transform function(s) via LLM..."):
             state = run_step("generate_code", state)
             # Run validation pass-through
             state = run_step("validate_code", state)

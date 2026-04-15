@@ -30,9 +30,14 @@ Map source columns to unified columns based on SEMANTIC meaning, not just name:
 - "event_id" → "data_source" (ID as source reference)
 
 ## Instructions
-For each unified schema column (excluding "computed" and "enrichment" columns), classify:
-- MAP: A source column maps semantically. Provide source_column. Include in column_mapping.
-- GAP: The unified column has a source equivalent but needs transformation (type change, format change). Include in gaps list with source_column set.
+For each unified schema column (excluding "computed" and "enrichment" columns), classify into one of four categories:
+
+1. **MAP**: A source column maps semantically with no transformation needed. Include in column_mapping.
+2. **TYPE_CAST**: A source column maps semantically but needs a type conversion (e.g., int64 → string, object → float). Include in derivable_gaps with action "TYPE_CAST".
+3. **DERIVE**: The unified column can be computed from one or more existing source columns via transformation logic (e.g., parsing a description, combining fields). Include in derivable_gaps with action "DERIVE".
+4. **MISSING**: No source column exists and the column CANNOT be derived from any combination of source columns. The data simply does not exist in this source. Include in missing_columns with a reason explaining why.
+
+CRITICAL: If a unified column has no plausible source column AND cannot be derived from any combination of source columns, classify it as MISSING — do NOT classify it as a gap with a null source_column. The pipeline cannot invent data that does not exist.
 
 Return ONLY a JSON object with this exact structure:
 {{
@@ -40,14 +45,21 @@ Return ONLY a JSON object with this exact structure:
     "source_col_name": "unified_col_name",
     ...
   }},
-  "gaps": [
+  "derivable_gaps": [
     {{
       "target_column": "unified_col_name",
       "target_type": "string",
       "source_column": "source_col_name",
       "source_type": "source_type",
-      "action": "GAP",
+      "action": "TYPE_CAST",
       "sample_values": ["val1", "val2"]
+    }}
+  ],
+  "missing_columns": [
+    {{
+      "target_column": "unified_col_name",
+      "target_type": "string",
+      "reason": "Source dataset does not contain this information"
     }}
   ]
 }}
@@ -126,12 +138,15 @@ Include every block from the input list exactly once. Do not add or remove any b
 You may use stage names (dedup_stage, enrich_stage) or expand them — either is valid."""
 
 
-CODEGEN_PROMPT = """You are a code generation agent. Generate a Python Block class for schema transformation.
+CODEGEN_PROMPT = """You are a code generation agent. Generate a Python Block class for a complex schema transformation.
+
+NOTE: Simple operations (type casts, null column creation, format transforms) are handled declaratively via YAML.
+You are only called for DERIVE gaps — columns that must be computed from one or more existing source columns using non-trivial logic.
 
 ## Gap to fill
 - Target column: {target_column}
 - Target type: {target_type}
-- Source column: {source_column}
+- Source column(s): {source_column}
 - Source type: {source_type}
 - Sample source values: {sample_values}
 - Domain: {domain}
@@ -149,25 +164,18 @@ class {block_name}Block(Block):
     description = "Auto-generated: {description}"
     inputs = {input_cols}
     outputs = {output_cols}
-    
+
     def run(self, df: pd.DataFrame, config: dict | None = None) -> pd.DataFrame:
         df = df.copy()
-        # TODO: Implement transformation logic based on gap type
+        # TODO: Implement derivation logic
         return df
 ```
 
-## Gap Types (choose appropriate transformation):
-1. TYPE_CONVERSION: Cast source column to target type (e.g., object -> string, int64 -> date string)
-2. COLUMN_RENAME: Rename source column to target column name
-3. COLUMN_DROP: Drop a column not in output schema
-4. COLUMN_CREATE: Create new column with default/null value
-5. FORMAT_TRANSFORM: Transform format (e.g., date parsing, number parsing)
-
 ## Safe NA Patterns (required — these prevent runtime TypeErrors)
-- Float/int COLUMN_CREATE: `df['col'] = float('nan')` — NEVER `pd.NA` then `.astype('float64')`
-- Float/int TYPE_CONVERSION: `pd.to_numeric(df['src'], errors='coerce')` — NEVER `.astype('float64')` directly
-- String cast: `.astype(str)` is safe
-- Boolean COLUMN_CREATE: `df['col'] = None`
+- Float/int creation: `df['col'] = float('nan')` — NEVER `pd.NA` then `.astype('float64')`
+- Numeric conversion: `pd.to_numeric(df['src'], errors='coerce')` — NEVER `.astype('float64')` directly
+- String cast: `.astype(str)` is safe but NEVER cast None to str (produces literal "None")
+- Boolean: `df['col'] = None`
 
 ## Constraints
 - Block must inherit from src.blocks.base.Block
@@ -177,8 +185,7 @@ class {block_name}Block(Block):
 - Do NOT use: os, sys, subprocess, open, eval, exec, __import__
 
 ## Naming Convention
-Block name format: {{Action}}_{{TargetColumn}}_{{DatasetName}}
-Example: CastToString_product_name_acme_data
+Block name format: DERIVE_{{TargetColumn}}_{{DatasetName}}
 
 ## Return ONLY the Python Block class code, nothing else. No markdown, no explanation."""
 

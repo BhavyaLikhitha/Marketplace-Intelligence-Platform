@@ -37,19 +37,28 @@ def _clean_code_response(raw: str) -> str:
 
 
 def _determine_gap_type(gap: dict) -> str:
-    """Determine the gap type based on gap characteristics."""
-    source_col = gap.get("source_column")
-    target_col = gap.get("target_column")
-    source_type = gap.get("source_type", "")
-    target_type = gap.get("target_type", "")
+    """Determine the gap type based on gap characteristics.
 
+    Agent 2 now only handles DERIVE gaps. Simple operations (COLUMN_CREATE,
+    TYPE_CONVERSION, FORMAT_TRANSFORM) are handled by DynamicMappingBlock
+    via YAML.
+    """
+    action = gap.get("action", "")
+    if action == "DERIVE":
+        return "DERIVE"
+
+    # Fallback for legacy gaps that slip through
+    source_col = gap.get("source_column")
     if source_col is None:
         return "COLUMN_CREATE"
+
+    source_type = gap.get("source_type", "")
+    target_type = gap.get("target_type", "")
 
     if source_type != target_type:
         return "TYPE_CONVERSION"
 
-    if source_col != target_col:
+    if source_col != gap.get("target_column"):
         return "COLUMN_RENAME"
 
     return "FORMAT_TRANSFORM"
@@ -68,7 +77,14 @@ def generate_code_node(state: PipelineState) -> dict:
 
     Calls LLM for code generation, validates in sandbox.
     """
-    misses = state.get("registry_misses", [])
+    all_misses = state.get("registry_misses", [])
+    # Agent 2 only handles DERIVE gaps; simple TYPE_CAST/FORMAT_TRANSFORM/MISSING
+    # are handled by DynamicMappingBlock via YAML.
+    misses = [g for g in all_misses if g.get("action") == "DERIVE"]
+    if not misses:
+        logger.info("No DERIVE gaps to generate code for — skipping Agent 2")
+        return {"generated_blocks": state.get("generated_blocks", []), "retry_count": 1}
+
     retry_count = state.get("retry_count", 0)
     previous_blocks = state.get("generated_blocks", [])
     model = get_codegen_llm()
@@ -81,7 +97,7 @@ def generate_code_node(state: PipelineState) -> dict:
         failed = [b for b in previous_blocks if not b.get("validation_passed")]
         misses = [
             gap
-            for gap in state.get("registry_misses", [])
+            for gap in misses
             if any(
                 b.get("block_name", "").replace("Block", "")
                 == gap.get("target_column", "")

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any, Optional, Union
 from typing_extensions import TypedDict
 
 
@@ -13,7 +13,26 @@ class GapItem(TypedDict):
     target_type: str
     source_column: Optional[str]  # None if column must be derived
     source_type: Optional[str]
-    action: str  # MAP, DROP, NEW, ADD
+    action: str  # MAP, DROP, NEW, ADD, MISSING, TYPE_CAST, DERIVE, FORMAT_TRANSFORM
+    sample_values: list[str]
+
+
+class MissingColumn(TypedDict):
+    """A unified schema column that has no source data and no derivation path."""
+
+    target_column: str
+    target_type: str
+    reason: str  # LLM explanation for why no derivation path exists
+
+
+class DerivedGap(TypedDict):
+    """A schema gap that can be resolved by transforming existing source columns."""
+
+    target_column: str
+    target_type: str
+    source_column: Optional[str]
+    source_type: Optional[str]
+    action: str  # TYPE_CAST, DERIVE, FORMAT_TRANSFORM
     sample_values: list[str]
 
 
@@ -48,10 +67,14 @@ class PipelineState(TypedDict, total=False):
     # Schema analysis (set by orchestrator node)
     unified_schema: dict
     unified_schema_existed: bool  # True if schema was loaded, False if derived
-    gaps: list[GapItem]
+    gaps: list[GapItem]  # backward-compat union of derivable_gaps + missing_columns
+    derivable_gaps: list[DerivedGap]  # gaps resolvable by transforming source columns
+    missing_columns: list[MissingColumn]  # columns with no source data or derivation path
     column_mapping: dict  # source_col -> unified_col
     enrichment_columns_to_generate: list[str]  # enrichment cols absent from source
     mapping_warnings: list[str]  # required unified cols not covered by mapping
+    missing_column_decisions: dict  # HITL decisions: {col: {action, value?}}
+    mapping_yaml_path: Optional[str]  # path to generated YAML mapping file
 
     # Registry results (set by registry_check node)
     block_registry_hits: dict  # target_col -> block_name

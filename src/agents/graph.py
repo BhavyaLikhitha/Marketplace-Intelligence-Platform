@@ -67,6 +67,8 @@ def plan_sequence_node(state: PipelineState) -> dict:
         "COLUMN_DROP_",
         "COLUMN_CREATE_",
         "FORMAT_TRANSFORM_",
+        "DYNAMIC_MAPPING_",
+        "DERIVE_",
     )
 
     gap_summary = {
@@ -265,10 +267,19 @@ def save_output_node(state: PipelineState) -> dict:
 
 def route_after_registry_check(state: PipelineState) -> str:
     misses = state.get("registry_misses", [])
-    if misses:
-        logger.info(f"{len(misses)} registry misses — routing to code generator")
+    # Only route to Agent 2 if there are DERIVE gaps (complex derivations).
+    # Simple TYPE_CAST/FORMAT_TRANSFORM/MISSING are handled by YAML.
+    derive_misses = [m for m in misses if m.get("action") == "DERIVE"]
+    if derive_misses:
+        logger.info(f"{len(derive_misses)} DERIVE misses — routing to code generator")
         return "generate_code"
-    logger.info("All gaps covered by registry — routing to sequence planner")
+    if misses:
+        logger.info(
+            f"{len(misses)} non-DERIVE misses remaining (will be handled by YAML) "
+            "— routing to sequence planner"
+        )
+    else:
+        logger.info("All gaps covered by registry/YAML — routing to sequence planner")
     return "plan_sequence"
 
 

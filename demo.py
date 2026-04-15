@@ -44,6 +44,7 @@ def run_pipeline(source_path: str, domain: str, run_label: str) -> dict:
         {
             "source_path": source_path,
             "domain": domain,
+            "missing_column_decisions": {},  # CLI default: accept nulls for all
         }
     )
 

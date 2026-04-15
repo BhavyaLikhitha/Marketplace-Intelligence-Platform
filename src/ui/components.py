@@ -53,11 +53,15 @@ def render_schema_delta(
     column_mapping: dict,
     gaps: list[dict],
     unified_schema: dict | None = None,
+    missing_columns: list[dict] | None = None,
+    derivable_gaps: list[dict] | None = None,
 ) -> str:
     """
     Render a side-by-side schema delta table.
 
-    Shows: source column → unified column, action badge, type, null rate.
+    Shows: source column -> unified column, action badge, type, null rate.
+    When missing_columns and derivable_gaps are provided, uses the new
+    classification badges (MISSING, TYPE_CAST, DERIVE) instead of generic GAP.
     """
     rows = []
 
@@ -84,26 +88,65 @@ def render_schema_delta(
             f'</tr>'
         )
 
-    # Gaps
-    for gap in gaps:
-        action = gap.get("action", "ADD")
-        badge_cls = f"badge-{action.lower()}"
-        src_col = gap.get("source_column") or "—"
-        target_col = gap.get("target_column", "")
-        src_type = gap.get("source_type") or "—"
-        target_type = gap.get("target_type", "")
+    # Use new classification if available, otherwise fall back to legacy gaps
+    if derivable_gaps is not None:
+        for gap in derivable_gaps:
+            action = gap.get("action", "TYPE_CAST")
+            badge_cls = "badge-derivable"
+            src_col = gap.get("source_column") or "—"
+            target_col = gap.get("target_column", "")
+            src_type = gap.get("source_type") or "—"
+            target_type = gap.get("target_type", "")
 
-        rows.append(
-            f'<tr>'
-            f'<td class="col-source">{html.escape(str(src_col))}</td>'
-            f'<td>&#8594;</td>'
-            f'<td class="col-unified">{html.escape(target_col)}</td>'
-            f'<td><span class="badge {badge_cls}">{html.escape(action)}</span></td>'
-            f'<td class="col-type">{html.escape(str(src_type))}</td>'
-            f'<td class="col-type">{html.escape(str(target_type))}</td>'
-            f'<td>—</td>'
-            f'</tr>'
-        )
+            rows.append(
+                f'<tr>'
+                f'<td class="col-source">{html.escape(str(src_col))}</td>'
+                f'<td>&#8594;</td>'
+                f'<td class="col-unified">{html.escape(target_col)}</td>'
+                f'<td><span class="badge {badge_cls}">{html.escape(action)}</span></td>'
+                f'<td class="col-type">{html.escape(str(src_type))}</td>'
+                f'<td class="col-type">{html.escape(str(target_type))}</td>'
+                f'<td>—</td>'
+                f'</tr>'
+            )
+    if missing_columns is not None:
+        for mc in missing_columns:
+            target_col = mc.get("target_column", "")
+            target_type = mc.get("target_type", "")
+            reason = mc.get("reason", "")
+
+            rows.append(
+                f'<tr>'
+                f'<td class="col-source" style="color:#f85149;">—</td>'
+                f'<td>&#8594;</td>'
+                f'<td class="col-unified">{html.escape(target_col)}</td>'
+                f'<td><span class="badge badge-missing">MISSING</span></td>'
+                f'<td class="col-type">—</td>'
+                f'<td class="col-type">{html.escape(str(target_type))}</td>'
+                f'<td title="{html.escape(reason)}" style="color:#f85149;">unavailable</td>'
+                f'</tr>'
+            )
+    elif not derivable_gaps:
+        # Legacy fallback: use flat gaps list
+        for gap in gaps:
+            action = gap.get("action", "ADD")
+            badge_cls = f"badge-{action.lower()}"
+            src_col = gap.get("source_column") or "—"
+            target_col = gap.get("target_column", "")
+            src_type = gap.get("source_type") or "—"
+            target_type = gap.get("target_type", "")
+
+            rows.append(
+                f'<tr>'
+                f'<td class="col-source">{html.escape(str(src_col))}</td>'
+                f'<td>&#8594;</td>'
+                f'<td class="col-unified">{html.escape(target_col)}</td>'
+                f'<td><span class="badge {badge_cls}">{html.escape(action)}</span></td>'
+                f'<td class="col-type">{html.escape(str(src_type))}</td>'
+                f'<td class="col-type">{html.escape(str(target_type))}</td>'
+                f'<td>—</td>'
+                f'</tr>'
+            )
 
     return (
         '<table class="schema-table">'
@@ -111,6 +154,79 @@ def render_schema_delta(
         '<th>Source Column</th><th></th><th>Unified Column</th>'
         '<th>Action</th><th>Source Type</th><th>Target Type</th><th>Null Rate</th>'
         '</tr></thead>'
+        f'<tbody>{"".join(rows)}</tbody>'
+        '</table>'
+    )
+
+
+def render_missing_columns(missing_columns: list[dict]) -> str:
+    """Render a table of missing columns with their reasons."""
+    if not missing_columns:
+        return ""
+
+    rows = []
+    for mc in missing_columns:
+        target = mc.get("target_column", "?")
+        target_type = mc.get("target_type", "?")
+        reason = mc.get("reason", "No source data available")
+        rows.append(
+            f'<tr>'
+            f'<td class="col-unified">{html.escape(target)}</td>'
+            f'<td class="col-type">{html.escape(target_type)}</td>'
+            f'<td><span class="badge badge-missing">UNAVAILABLE</span></td>'
+            f'<td style="color:#8b949e; font-size:0.85em;">{html.escape(reason)}</td>'
+            f'</tr>'
+        )
+
+    return (
+        '<table class="schema-table">'
+        '<thead><tr><th>Column</th><th>Type</th><th>Status</th><th>Reason</th></tr></thead>'
+        f'<tbody>{"".join(rows)}</tbody>'
+        '</table>'
+    )
+
+
+def render_yaml_review(operations: list[dict]) -> str:
+    """Render YAML mapping operations for HITL review."""
+    if not operations:
+        return '<p style="color:#6b7685">No declarative operations.</p>'
+
+    rows = []
+    for op in operations:
+        target = op.get("target", "?")
+        col_type = op.get("type", "?")
+        action = op.get("action", "?")
+        source = op.get("source", "—")
+        status = op.get("status", "")
+        reason = op.get("reason", "")
+
+        if action == "set_null":
+            badge = '<span class="badge badge-missing">SET NULL</span>'
+        elif action == "set_default":
+            default_val = op.get("default_value", "?")
+            badge = f'<span class="badge badge-map">DEFAULT: {html.escape(str(default_val))}</span>'
+        elif action == "type_cast":
+            badge = '<span class="badge badge-derivable">TYPE CAST</span>'
+        elif action == "format_transform":
+            transform = op.get("transform", "?")
+            badge = f'<span class="badge badge-derivable">TRANSFORM: {html.escape(transform)}</span>'
+        else:
+            badge = f'<span class="badge">{html.escape(action)}</span>'
+
+        detail = html.escape(reason) if reason else html.escape(str(source))
+
+        rows.append(
+            f'<tr>'
+            f'<td class="col-unified">{html.escape(target)}</td>'
+            f'<td class="col-type">{html.escape(col_type)}</td>'
+            f'<td>{badge}</td>'
+            f'<td style="color:#8b949e; font-size:0.85em;">{detail}</td>'
+            f'</tr>'
+        )
+
+    return (
+        '<table class="schema-table">'
+        '<thead><tr><th>Target Column</th><th>Type</th><th>Action</th><th>Detail</th></tr></thead>'
         f'<tbody>{"".join(rows)}</tbody>'
         '</table>'
     )

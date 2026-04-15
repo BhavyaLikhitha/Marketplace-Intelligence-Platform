@@ -63,6 +63,8 @@ def _discover_generated_blocks() -> dict[str, Block]:
             continue
 
         domain = domain_dir.name
+
+        # Discover Python-based generated blocks
         for block_file in domain_dir.glob("*.py"):
             if block_file.name.startswith("_") or block_file.stem == "base":
                 continue
@@ -93,6 +95,20 @@ def _discover_generated_blocks() -> dict[str, Block]:
 
             except Exception as e:
                 logger.error(f"Failed to load block from {block_file}: {e}")
+
+        # Discover YAML-based DynamicMappingBlocks
+        for yaml_file in domain_dir.glob("DYNAMIC_MAPPING_*.yaml"):
+            try:
+                from src.blocks.dynamic_mapping import DynamicMappingBlock
+
+                block = DynamicMappingBlock(domain=domain, yaml_path=str(yaml_file))
+                generated[block.name] = block
+                logger.info(
+                    f"Loaded YAML mapping block: {block.name} "
+                    f"(domain: {domain}, file: {yaml_file.name})"
+                )
+            except Exception as e:
+                logger.error(f"Failed to load YAML mapping from {yaml_file}: {e}")
 
     return generated
 

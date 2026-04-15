@@ -58,6 +58,11 @@ GLOBAL_CSS = """
     .badge-miss { background: #3d1f1f; color: #f85149; }
     .badge-pass { background: #1b4332; color: #3fb950; }
     .badge-fail { background: #3d1f1f; color: #f85149; }
+    .badge-missing { background: #3d1f1f; color: #f85149; }
+    .badge-derivable { background: #1a3a5c; color: #79c0ff; }
+    .badge-type_cast { background: #1a3a5c; color: #79c0ff; }
+    .badge-derive { background: #2d1b69; color: #d2a8ff; }
+    .badge-format_transform { background: #1a3a5c; color: #79c0ff; }
 
     /* ── Schema delta table ─────────────────────────────── */
     .schema-table {

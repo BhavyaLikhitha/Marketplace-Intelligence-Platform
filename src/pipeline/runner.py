@@ -135,6 +135,8 @@ class PipelineRunner:
                     or name.startswith("COLUMN_DROP_")
                     or name.startswith("COLUMN_CREATE_")
                     or name.startswith("FORMAT_TRANSFORM_")
+                    or name.startswith("DYNAMIC_MAPPING_")
+                    or name.startswith("DERIVE_")
                 ]
                 expanded.extend(generated_blocks)
             elif self.block_registry.is_stage(item):
