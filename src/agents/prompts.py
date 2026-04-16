@@ -61,14 +61,15 @@ Use EXACTLY these primitive names. Each unified column must appear in exactly on
 
 | Primitive | When to use | Required fields |
 |-----------|-------------|-----------------|
-| RENAME    | Source col maps semantically, same data, no type change needed | source_column, target_column |
-| CAST      | Source col maps semantically but needs type conversion (e.g. int64→string) | source_column, target_column, target_type, source_type, action (one of: type_cast) |
-| FORMAT    | Source col needs value transformation (date parsing, case change, regex, value mapping, etc.) | source_column, target_column, target_type, action (one of: parse_date, to_lowercase, to_uppercase, strip_whitespace, regex_replace, regex_extract, truncate_string, pad_string, value_map, format_transform), optional: mapping dict for value_map |
-| DELETE    | Source col has no place in unified schema — drop it | source_column |
-| ADD       | No source data exists — create null or constant column | target_column, target_type, action (one of: set_null, set_default), optional: default_value |
-| SPLIT     | 1 source col → N target cols (JSON array, delimited string) | source_column, action (one of: json_array_extract_multi, split_column, xml_extract), target_columns dict |
-| UNIFY     | N source cols → 1 target col (first-non-null, concatenate, template) | sources list, target_column, action (one of: coalesce, concat_columns, string_template) |
-| DERIVE    | Complex extraction or conditional logic (keyword→bool, JSON field extract, arithmetic) | source_column (or sources list), target_column, target_type, action (one of: extract_json_field, conditional_map, expression, contains_flag) |
+| RENAME       | Source col maps semantically, same data, no type change needed | source_column, target_column |
+| CAST         | Source col maps semantically but needs type conversion (e.g. int64→string) | source_column, target_column, target_type, source_type, action (one of: type_cast) |
+| FORMAT       | Source col needs value transformation (date parsing, case change, regex, value mapping, etc.) | source_column, target_column, target_type, action (one of: parse_date, to_lowercase, to_uppercase, strip_whitespace, regex_replace, regex_extract, truncate_string, pad_string, value_map, format_transform), optional: mapping dict for value_map |
+| DELETE       | Source col has no place in unified schema — drop it | source_column |
+| ADD          | No source data exists — create null or constant column | target_column, target_type, action (one of: set_null, set_default), optional: default_value |
+| SPLIT        | 1 source col → N target cols (JSON array, delimited string) | source_column, action (one of: json_array_extract_multi, split_column, xml_extract), target_columns dict |
+| UNIFY        | N source cols → 1 target col (first-non-null, concatenate, template) | sources list, target_column, action (one of: coalesce, concat_columns, string_template) |
+| DERIVE       | Complex extraction or conditional logic (keyword→bool, JSON field extract, arithmetic) | source_column (or sources list), target_column, target_type, action (one of: extract_json_field, conditional_map, expression, contains_flag) |
+| ENRICH_ALIAS | Required col has no source data, but a semantically equivalent enrichment col (enrichment: true) will fill it downstream | target_column, source_enrichment |
 
 ## SPLIT action details
 For json_array_extract_multi, target_columns is a dict:
@@ -83,7 +84,10 @@ For json_array_extract_multi, target_columns is a dict:
 - If a unified column truly has no source data and cannot be derived → put it in unresolvable[] with a reason and fallback: "set_null".
 - Do NOT classify as unresolvable if any source column could produce the data with a SPLIT/DERIVE action.
 - NEVER map nutrient arrays (foodNutrients) to "ingredients" — nutrients are lab measurements, not ingredient lists.
-- For enrichment/computed columns (allergens, primary_category, dietary_tags, is_organic, dq_score_*, dq_delta) — skip entirely.
+- Columns marked `"enrichment": true` will be filled by downstream enrichment blocks — do NOT map source columns to them and do NOT include them in operations[].
+- Columns marked `"computed": true` (dq_score_*, dq_delta) — skip entirely.
+- For a required non-enrichment column with no source data: if an enrichment column (`"enrichment": true`) semantically covers the same concept (same meaning, compatible type), output ENRICH_ALIAS instead of ADD set_null. Required fields: target_column (the required col), source_enrichment (the enrichment col). Example: `category` (required) has no source data but `primary_category` (enrichment) represents the same concept → ENRICH_ALIAS.
+- Only use ENRICH_ALIAS when you are confident the enrichment column will produce the same data the required column needs. Otherwise use ADD set_null.
 
 ## Return ONLY a JSON object with this exact structure:
 {{
@@ -150,7 +154,15 @@ For json_array_extract_multi, target_columns is a dict:
       "fallback": "set_null"
     }}
   ]
-}}\
+}}
+
+Note: ENRICH_ALIAS example (use when a required col is semantically covered by an enrichment col):
+{{
+  "primitive": "ENRICH_ALIAS",
+  "target_column": "category",
+  "source_enrichment": "primary_category"
+}}
+ENRICH_ALIAS goes in operations[], not unresolvable[].
 """
 
 
@@ -229,6 +241,9 @@ Compare the full list of source columns in the profile against the columns consu
 
 ### Rule 7 — normalize_before_dedup annotation
 For every operation targeting a column that is identity-bearing — meaning it will be used as a similarity signal during deduplication (product name, brand, title, identifier-like columns) — ensure the operation has `normalize_before_dedup: true`. If Agent 1 omitted this annotation on identity columns, add it.
+
+### Rule 8 — enrichment alias detection
+For every `ADD set_null` operation on a **required** unified column: scan the unified schema for enrichment columns (`"enrichment": true`). If an enrichment column semantically covers the same concept as the required column (same meaning, compatible type), convert the `ADD set_null` to `ENRICH_ALIAS` with `source_enrichment` pointing to that enrichment column. Log the correction with the enrichment column name as the reason. Only convert when confident — leave as `set_null` if no clear semantic match exists.
 
 ## Output Format
 

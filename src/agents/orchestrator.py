@@ -136,7 +136,7 @@ def analyze_schema_node(state: PipelineState) -> dict:
     mappable_cols = {
         name: spec
         for name, spec in unified["columns"].items()
-        if not spec.get("computed") and not spec.get("enrichment")
+        if not spec.get("computed")
     }
     unified_for_prompt = {"columns": mappable_cols}
 
@@ -164,12 +164,21 @@ def analyze_schema_node(state: PipelineState) -> dict:
     derivable_gaps = []
     missing_columns = []
 
+    enrich_alias_ops: list[dict] = []
+
     if operations:
         # New format path
         for op in operations:
             primitive = op.get("primitive", "")
             target_col = op.get("target_column") or ""
             target_type = op.get("target_type", "string")
+
+            if primitive == "ENRICH_ALIAS":
+                enrich_alias_ops.append({
+                    "target": target_col,
+                    "source": op.get("source_enrichment", ""),
+                })
+                continue
 
             if primitive == "ADD":
                 missing_columns.append({
@@ -273,6 +282,11 @@ def analyze_schema_node(state: PipelineState) -> dict:
             f"{enrichment_to_generate}"
         )
 
+    if enrich_alias_ops:
+        logger.info(
+            f"Enrichment aliases: {[(a['target'], '←', a['source']) for a in enrich_alias_ops]}"
+        )
+
     if missing_columns:
         logger.warning(
             f"Missing columns (no source data): "
@@ -290,6 +304,7 @@ def analyze_schema_node(state: PipelineState) -> dict:
         "unresolvable_gaps": unresolvable, # audit trail
         "enrichment_columns_to_generate": enrichment_to_generate,
         "mapping_warnings": mapping_warnings,
+        "enrich_alias_ops": enrich_alias_ops,
     }
 
 
@@ -319,137 +334,200 @@ def check_registry_node(state: PipelineState) -> dict:
     derivable_gaps = state.get("derivable_gaps", [])
     decisions = state.get("missing_column_decisions", {})
     # Use revised_operations from Agent 1.5 if present, else fall back to Agent 1's raw operations
-    operations = state.get("revised_operations") or state.get("operations", [])
+    revised_operations = state.get("revised_operations")
+    operations = revised_operations or state.get("operations", [])
 
     block_hits: dict[str, str] = {}
     yaml_operations: list[dict] = []
+    # Rebuilt from revised_operations if Agent 1.5 ran (authoritative); else use analyze_schema_node output
+    enrich_alias_ops: list[dict] = [] if revised_operations else list(state.get("enrich_alias_ops") or [])
 
-    # ── Phase A: ADD / unresolvable → YAML set_null ──────────────────
-    for mc in missing_columns:
-        target_col = mc["target_column"]
-        target_type = mc.get("target_type", "string")
+    # ── New path: Process revised_operations directly if Agent 1.5 ran ──
+    if revised_operations:
+        logger.info(f"Processing {len(revised_operations)} revised operations from Agent 1.5")
 
-        # Check if an enrichment block handles this
-        provider = _BLOCK_COLUMN_PROVIDERS.get(target_col)
-        if provider and provider in block_reg.blocks:
-            logger.info(f"Block provider for missing column '{target_col}': {provider}")
-            block_hits[target_col] = provider
-            continue
+        # Collect operations by type for proper ordering:
+        # 1. DROP first (remove unwanted source columns)
+        # 2. Transforms/casts (modify existing columns)
+        # 3. ADD last (create new columns)
+        drop_ops: list[dict] = []
+        transform_ops: list[dict] = []
+        add_ops: list[dict] = []
 
-        # If the LLM provided a full op for this missing column, use it directly
-        full_op = mc.get("_op")
-        if full_op:
-            yaml_op = _llm_op_to_yaml(full_op, column_mapping)
-            if yaml_op:
-                yaml_operations.append(yaml_op)
-                logger.info(f"ADD op for '{target_col}' → YAML {yaml_op['action']}")
+        for op in revised_operations:
+            primitive = op.get("primitive", "")
+            target_col = op.get("target_column", "")
+            source_col = op.get("source_column")
+
+            # Skip RENAME — handled by column_mapping in PipelineRunner
+            if primitive == "RENAME":
                 continue
 
-        yaml_operations.append({
-            "target": target_col,
-            "type": target_type,
-            "action": "set_null",
-            "status": "missing",
-            "reason": mc.get("reason", "No source data available"),
-        })
-        logger.info(f"Missing column '{target_col}' → YAML set_null")
+            # ENRICH_ALIAS — required col will be filled post-enrichment; no YAML needed
+            if primitive == "ENRICH_ALIAS":
+                alias = {"target": target_col, "source": op.get("source_enrichment", "")}
+                enrich_alias_ops.append(alias)
+                logger.info(f"ENRICH_ALIAS '{target_col}' ← enrichment col '{alias['source']}'")
+                continue
 
-    # ── Phase B: Derivable gaps → registry check or YAML ────────────
-    generated_block_prefixes = (
-        "COLUMN_RENAME_",
-        "COLUMN_DROP_",
-        "FORMAT_TRANSFORM_",
-        "DYNAMIC_MAPPING_",
-        "DERIVE_",
-    )
+            # Check if enrichment block handles this column
+            provider = _BLOCK_COLUMN_PROVIDERS.get(target_col)
+            if provider and provider in block_reg.blocks:
+                logger.info(f"Block provider for '{target_col}': {provider}")
+                block_hits[target_col] = provider
+                continue
 
-    for gap in derivable_gaps:
-        target_col = gap.get("target_column", "")
-        action = gap.get("action", "")
-        full_op = gap.get("_op")
-
-        # Skip DELETE — handled separately below
-        if action == "DELETE":
-            source_col = gap.get("source_column")
-            if source_col:
-                yaml_operations.append({
-                    "source": source_col,
-                    "action": "drop_column",
+            # Convert to YAML operation
+            yaml_op = _llm_op_to_yaml(op, column_mapping)
+            if yaml_op:
+                action = yaml_op.get("action", "")
+                if action == "drop_column":
+                    drop_ops.append(yaml_op)
+                elif primitive == "ADD" or action in ("set_null", "set_default"):
+                    add_ops.append(yaml_op)
+                else:
+                    transform_ops.append(yaml_op)
+                logger.info(f"{primitive} '{target_col or source_col}' → YAML {action}")
+            elif primitive == "ADD":
+                # Fallback for ADD without expressible action
+                add_ops.append({
+                    "target": target_col,
+                    "type": op.get("target_type", "string"),
+                    "action": "set_null",
+                    "status": "missing",
+                    "reason": op.get("reason", "No source data available"),
                 })
-                logger.info(f"DELETE '{source_col}' → YAML drop_column")
-            continue
+                logger.info(f"ADD '{target_col}' → YAML set_null (fallback)")
 
-        # Check enrichment providers first
-        provider = _BLOCK_COLUMN_PROVIDERS.get(target_col)
-        if provider and provider in block_reg.blocks:
-            logger.info(f"Block registry hit for gap '{target_col}': {provider}")
-            block_hits[target_col] = provider
-            continue
+        # Merge in order: drops first, transforms, then adds
+        yaml_operations = drop_ops + transform_ops + add_ops
 
-        # Check for existing generated blocks
-        found_existing = False
-        for block_name in block_reg.blocks.keys():
-            if block_name.startswith(generated_block_prefixes):
-                if target_col in block_name or block_name.endswith(f"_{target_col}"):
-                    logger.info(f"Generated block found for gap '{target_col}': {block_name}")
-                    block_hits[target_col] = block_name
-                    found_existing = True
-                    break
+        # Skip legacy gap processing — revised_operations is authoritative
 
-        if found_existing:
-            continue
+    # ── Legacy path: Process gaps when Agent 1.5 did not run ──────────
+    if not revised_operations:
+        # Phase A: ADD / unresolvable → YAML set_null
+        for mc in missing_columns:
+            target_col = mc["target_column"]
+            target_type = mc.get("target_type", "string")
 
-        # Convert LLM op to YAML operation
-        if full_op:
-            yaml_op = _llm_op_to_yaml(full_op, column_mapping)
-            if yaml_op:
-                yaml_operations.append(yaml_op)
-                logger.info(f"{action} gap '{target_col}' → YAML {yaml_op.get('action')}")
+            provider = _BLOCK_COLUMN_PROVIDERS.get(target_col)
+            if provider and provider in block_reg.blocks:
+                logger.info(f"Block provider for missing column '{target_col}': {provider}")
+                block_hits[target_col] = provider
                 continue
 
-        # Legacy fallback for old-format gaps
-        source_col = gap.get("source_column")
-        target_type = gap.get("target_type", "string")
-        source_type = gap.get("source_type") or "string"
+            full_op = mc.get("_op")
+            if full_op:
+                yaml_op = _llm_op_to_yaml(full_op, column_mapping)
+                if yaml_op:
+                    yaml_operations.append(yaml_op)
+                    logger.info(f"ADD op for '{target_col}' → YAML {yaml_op['action']}")
+                    continue
 
-        if action in ("CAST", "TYPE_CAST"):
-            effective_source = column_mapping.get(source_col, source_col) if source_col else None
             yaml_operations.append({
                 "target": target_col,
                 "type": target_type,
-                "action": "type_cast",
-                "source": effective_source,
-                "source_type": source_type,
-            })
-            logger.info(f"CAST gap '{target_col}' → YAML type_cast")
-        elif action in ("FORMAT", "FORMAT_TRANSFORM"):
-            effective_source = column_mapping.get(source_col, source_col) if source_col else None
-            yaml_operations.append({
-                "target": target_col,
-                "type": target_type,
-                "action": "format_transform",
-                "source": effective_source,
-                "transform": "to_string",
-            })
-            logger.info(f"FORMAT gap '{target_col}' → YAML format_transform")
-        else:
-            # DERIVE / SPLIT / UNIFY without a full op — fall back to set_null + warning
-            logger.warning(
-                f"Gap '{target_col}' (primitive={action}) has no expressible YAML action "
-                "— falling back to set_null. Consider adding a YAML action or pre-built block."
-            )
-            yaml_operations.append({
-                "target": target_col,
-                "type": gap.get("target_type", "string"),
                 "action": "set_null",
-                "status": "unresolvable",
-                "reason": f"No YAML handler for primitive '{action}'",
+                "status": "missing",
+                "reason": mc.get("reason", "No source data available"),
             })
+            logger.info(f"Missing column '{target_col}' → YAML set_null")
+
+        # Phase B: Derivable gaps → registry check or YAML
+        generated_block_prefixes = (
+            "COLUMN_RENAME_",
+            "COLUMN_DROP_",
+            "FORMAT_TRANSFORM_",
+            "DYNAMIC_MAPPING_",
+            "DERIVE_",
+        )
+
+        for gap in derivable_gaps:
+            target_col = gap.get("target_column", "")
+            action = gap.get("action", "")
+            full_op = gap.get("_op")
+
+            if action == "DELETE":
+                source_col = gap.get("source_column")
+                if source_col:
+                    yaml_operations.append({
+                        "source": source_col,
+                        "action": "drop_column",
+                    })
+                    logger.info(f"DELETE '{source_col}' → YAML drop_column")
+                continue
+
+            provider = _BLOCK_COLUMN_PROVIDERS.get(target_col)
+            if provider and provider in block_reg.blocks:
+                logger.info(f"Block registry hit for gap '{target_col}': {provider}")
+                block_hits[target_col] = provider
+                continue
+
+            found_existing = False
+            for block_name in block_reg.blocks.keys():
+                if block_name.startswith(generated_block_prefixes):
+                    if target_col in block_name or block_name.endswith(f"_{target_col}"):
+                        logger.info(f"Generated block found for gap '{target_col}': {block_name}")
+                        block_hits[target_col] = block_name
+                        found_existing = True
+                        break
+
+            if found_existing:
+                continue
+
+            if full_op:
+                yaml_op = _llm_op_to_yaml(full_op, column_mapping)
+                if yaml_op:
+                    yaml_operations.append(yaml_op)
+                    logger.info(f"{action} gap '{target_col}' → YAML {yaml_op.get('action')}")
+                    continue
+
+            source_col = gap.get("source_column")
+            target_type = gap.get("target_type", "string")
+            source_type = gap.get("source_type") or "string"
+
+            if action in ("CAST", "TYPE_CAST"):
+                effective_source = column_mapping.get(source_col, source_col) if source_col else None
+                yaml_operations.append({
+                    "target": target_col,
+                    "type": target_type,
+                    "action": "type_cast",
+                    "source": effective_source,
+                    "source_type": source_type,
+                })
+                logger.info(f"CAST gap '{target_col}' → YAML type_cast")
+            elif action in ("FORMAT", "FORMAT_TRANSFORM"):
+                effective_source = column_mapping.get(source_col, source_col) if source_col else None
+                yaml_operations.append({
+                    "target": target_col,
+                    "type": target_type,
+                    "action": "format_transform",
+                    "source": effective_source,
+                    "transform": "to_string",
+                })
+                logger.info(f"FORMAT gap '{target_col}' → YAML format_transform")
+            else:
+                logger.warning(
+                    f"Gap '{target_col}' (primitive={action}) has no expressible YAML action "
+                    "— falling back to set_null."
+                )
+                yaml_operations.append({
+                    "target": target_col,
+                    "type": gap.get("target_type", "string"),
+                    "action": "set_null",
+                    "status": "unresolvable",
+                    "reason": f"No YAML handler for primitive '{action}'",
+                })
 
     # ── Phase C: Apply HITL decisions, patch schema, and write YAML ──
     unified_schema = copy.deepcopy(state.get("unified_schema", {}))
+    aliased_cols = {a["target"] for a in enrich_alias_ops}
     excluded_columns = []
     for col_name, decision in decisions.items():
+        if col_name in aliased_cols:
+            # Column will be filled by enrichment alias — ignore HITL exclusion decision
+            continue
         if decision.get("action") == "exclude":
             col_spec = unified_schema.get("columns", {}).get(col_name)
             if col_spec:
@@ -474,6 +552,7 @@ def check_registry_node(state: PipelineState) -> dict:
         "block_registry_hits": block_hits,
         "registry_misses": [],  # Always empty — no Agent 2
         "mapping_yaml_path": mapping_yaml_path,
+        "enrich_alias_ops": enrich_alias_ops,
     }
 
     if excluded_columns:

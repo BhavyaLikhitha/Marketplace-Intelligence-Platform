@@ -180,6 +180,17 @@ def run_pipeline_node(state: PipelineState) -> dict:
     except Exception:
         pass
 
+    # Apply enrich aliases: copy enrichment col → required col where null
+    # Runs post-enrichment (all blocks already executed), before quarantine check
+    for alias in state.get("enrich_alias_ops", []):
+        src, tgt = alias.get("source", ""), alias.get("target", "")
+        if not src or not tgt:
+            continue
+        if src in result_df.columns and tgt in result_df.columns:
+            result_df[tgt] = result_df[tgt].fillna(result_df[src])
+        elif src in result_df.columns:
+            result_df[tgt] = result_df[src].copy()
+
     unified_schema = state.get("unified_schema", {})
     required_cols = [
         col

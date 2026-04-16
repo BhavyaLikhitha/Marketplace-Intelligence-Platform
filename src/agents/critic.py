@@ -29,6 +29,11 @@ def critique_schema_node(state: PipelineState) -> dict:
         - revised_operations: corrected operations list
         - critique_notes: audit trail of corrections made
     """
+    # Guard: skip if already ran (prevents double-execution on Streamlit rerenders)
+    if state.get("revised_operations") is not None:
+        logger.info("Agent 1.5 already ran — skipping")
+        return {}
+
     operations = state.get("operations", [])
     if not operations:
         logger.info("No operations from Agent 1 — skipping critique")
@@ -43,7 +48,7 @@ def critique_schema_node(state: PipelineState) -> dict:
     mappable_cols = {
         name: spec
         for name, spec in unified_schema.get("columns", {}).items()
-        if not spec.get("computed") and not spec.get("enrichment")
+        if not spec.get("computed")
     }
 
     model = get_critic_llm()
