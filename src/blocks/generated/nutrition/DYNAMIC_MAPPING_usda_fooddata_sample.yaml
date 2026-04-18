@@ -3,22 +3,10 @@ column_operations:
   action: drop_column
 - source: gtin_upc
   action: drop_column
-- source: market_country
-  action: drop_column
 - source: search_term
   action: drop_column
-- source: data_source
+- source: market_country
   action: drop_column
-- target: brand_owner
-  type: string
-  action: strip_whitespace
-  source: brand_owner
-  normalize_before_dedup: true
-- target: brand_name
-  type: string
-  action: strip_whitespace
-  source: brand_name
-  normalize_before_dedup: true
 - target: serving_size_unit
   type: string
   action: value_map
@@ -26,7 +14,7 @@ column_operations:
   mapping:
     GRM: g
     g: g
-- target: data_source
-  type: string
-  action: set_default
-  default_value: USDA
+    gram: g
+    grams: g
+    G: g
+    GM: g
