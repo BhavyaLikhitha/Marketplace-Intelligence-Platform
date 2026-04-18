@@ -1,4 +1,4 @@
-"""Agent 1.5 — Gap Analysis Critic: validates and corrects Agent 1's operations list."""
+"""Agent 2 — Gap Analysis Critic: validates and corrects Agent 1's operations list."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 def critique_schema_node(state: PipelineState) -> dict:
     """
-    Agent 1.5: Critic node that audits and corrects Agent 1's schema analysis.
+    Agent 2: Critic node that audits and corrects Agent 1's schema analysis.
 
     Invoked only during new schema ingestion — when Agent 1 produces a fresh
     operations list. Uses a more capable reasoning model to catch errors,
@@ -31,7 +31,7 @@ def critique_schema_node(state: PipelineState) -> dict:
     """
     # Guard: skip if already ran (prevents double-execution on Streamlit rerenders)
     if state.get("revised_operations") is not None:
-        logger.info("Agent 1.5 already ran — skipping")
+        logger.info("Agent 2 already ran — skipping")
         return {}
 
     operations = state.get("operations", [])
@@ -53,7 +53,7 @@ def critique_schema_node(state: PipelineState) -> dict:
     }
 
     model = get_critic_llm()
-    logger.info(f"Agent 1.5 critique using model: {model}")
+    logger.info(f"Agent 2 critique using model: {model}")
 
     result = call_llm_json(
         model=model,
@@ -75,14 +75,48 @@ def critique_schema_node(state: PipelineState) -> dict:
     critique_notes = result.get("critique_notes", [])
 
     if critique_notes:
-        logger.info(f"Agent 1.5 made {len(critique_notes)} correction(s)")
+        logger.info(f"Agent 2 made {len(critique_notes)} correction(s)")
+        for note in critique_notes:
+            rule = note.get("rule", "?")
+            column = note.get("target_column", "?")
+            logger.info(f"  - [{rule}] {column}")
+
+    return {
+        "revised_operations": revised_operations,
+        "critique_notes": critique_notes,
+    }
+
+    model = get_critic_llm()
+    logger.info(f"Agent 2 critique using model: {model}")
+
+    result = call_llm_json(
+        model=model,
+        messages=[
+            {
+                "role": "user",
+                "content": CRITIC_PROMPT.format(
+                    source_profile=json.dumps(columns_only, indent=2),
+                    source_meta=json.dumps(meta_block, indent=2),
+                    unified_schema=json.dumps({"columns": mappable_cols}, indent=2),
+                    column_mapping=json.dumps(column_mapping, indent=2),
+                    operations=json.dumps(operations, indent=2),
+                ),
+            }
+        ],
+    )
+
+    revised_operations = result.get("revised_operations", operations)
+    critique_notes = result.get("critique_notes", [])
+
+    if critique_notes:
+        logger.info(f"Agent 2 made {len(critique_notes)} correction(s)")
         for note in critique_notes:
             rule = note.get("rule", "?")
             column = note.get("column", "?")
             correction = note.get("correction", "")
             logger.info(f"  [{rule}] {column}: {correction}")
     else:
-        logger.info("Agent 1.5: no corrections needed")
+        logger.info("Agent 2: no corrections needed")
 
     return {
         "revised_operations": revised_operations,

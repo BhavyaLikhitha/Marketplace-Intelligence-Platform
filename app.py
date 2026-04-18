@@ -278,7 +278,8 @@ def step_schema_analysis():
         f'<div class="metric-value val-good">{n_aliases}</div>'
         f'<div class="metric-sub">Filled post-enrichment</div>'
         f"</div>"
-        if n_aliases > 0 else ""
+        if n_aliases > 0
+        else ""
     )
     st.markdown(
         f'<div class="metric-row">'
@@ -308,25 +309,25 @@ def step_schema_analysis():
     # Missing columns HITL decision
     missing_cols = state.get("missing_columns", [])
     aliased_targets = {a["target"] for a in state.get("enrich_alias_ops", [])}
-    truly_missing_cols = [mc for mc in missing_cols if mc["target_column"] not in aliased_targets]
+    truly_missing_cols = [
+        mc for mc in missing_cols if mc["target_column"] not in aliased_targets
+    ]
     if missing_cols:
         st.markdown(
             '<div class="section-header">Missing Columns — No Source Data</div>',
             unsafe_allow_html=True,
         )
-        st.markdown(
-            render_missing_columns(truly_missing_cols), unsafe_allow_html=True
-        )
+        st.markdown(render_missing_columns(truly_missing_cols), unsafe_allow_html=True)
         st.markdown(
             '<p style="color:#bc4c00; font-size:0.85em; margin:8px 0 4px 0;">'
-            'Preliminary list (Agent 1.5 in Step 2 may detect semantic aliases to enrichment columns). '
-            'Rows with null values in truly unresolvable required columns will be quarantined.</p>',
+            "Preliminary list (Agent 2 in Step 2 may detect semantic aliases to enrichment columns). "
+            "Rows with null values in truly unresolvable required columns will be quarantined.</p>",
             unsafe_allow_html=True,
         )
         st.markdown(
             '<p style="color:#57606a; font-size:0.85em; margin:0 0 16px 0;">'
-            'You can exclude individual columns from the required schema for this run '
-            'to prevent them from triggering quarantine.</p>',
+            "You can exclude individual columns from the required schema for this run "
+            "to prevent them from triggering quarantine.</p>",
             unsafe_allow_html=True,
         )
 
@@ -336,7 +337,11 @@ def step_schema_analysis():
             col_type = mc.get("target_type", "string")
             if col_name in aliased_targets:
                 alias_src = next(
-                    (a["source"] for a in state.get("enrich_alias_ops", []) if a["target"] == col_name),
+                    (
+                        a["source"]
+                        for a in state.get("enrich_alias_ops", [])
+                        if a["target"] == col_name
+                    ),
                     "enrichment",
                 )
                 st.info(
@@ -348,7 +353,9 @@ def step_schema_analysis():
                     f"Exclude `{col_name}` ({col_type}) from required schema",
                     key=f"missing_exclude_{col_name}",
                 )
-                decisions[col_name] = {"action": "exclude"} if exclude else {"action": "accept_null"}
+                decisions[col_name] = (
+                    {"action": "exclude"} if exclude else {"action": "accept_null"}
+                )
 
         state["missing_column_decisions"] = decisions
         st.session_state["pipeline_state"] = state
@@ -360,12 +367,16 @@ def step_schema_analysis():
     if truly_missing:
         col1, col2, col3 = st.columns(3)
         with col1:
-            if st.button("Force Continue (Quarantine Expected)", type="primary", width="stretch"):
+            if st.button(
+                "Force Continue (Quarantine Expected)", type="primary", width="stretch"
+            ):
                 _advance_step(2)
                 st.rerun()
         with col2:
             if st.button("Abort Ingestion", width="stretch"):
-                st.warning("Ingestion aborted. Missing columns cannot be filled from this source.")
+                st.warning(
+                    "Ingestion aborted. Missing columns cannot be filled from this source."
+                )
                 st.session_state["step"] = 0
         with col3:
             if st.button("Back to Source Selection", width="stretch"):
@@ -390,8 +401,8 @@ def step_code_generation():
     """Step 2: Schema Mapping — critique, registry check, YAML generation, sequence planning."""
     state = st.session_state["pipeline_state"]
 
-    # Agent 1.5: critique Agent 1's operations
-    with st.spinner("Agent 1.5: Critiquing schema analysis..."):
+    # Agent 2: critique Agent 1's operations
+    with st.spinner("Agent 2: Critiquing schema analysis..."):
         state = run_step("critique_schema", state)
 
     with st.spinner("Checking block registry and building schema mapping..."):
@@ -409,9 +420,9 @@ def step_code_generation():
     )
     st.markdown(render_registry_results(hits, []), unsafe_allow_html=True)
 
-    # Agent 1.5 Critique section
+    # Agent 2 Critique section
     critique_notes = state.get("critique_notes", [])
-    with st.expander("Agent 1.5 Critique", expanded=bool(critique_notes)):
+    with st.expander("Agent 2 Critique", expanded=bool(critique_notes)):
         if critique_notes:
             for note in critique_notes:
                 rule = note.get("rule", "Unknown rule")
@@ -436,6 +447,7 @@ def step_code_generation():
         )
         try:
             from src.blocks.mapping_io import read_mapping_yaml
+
             yaml_ops = read_mapping_yaml(yaml_path)
             st.markdown(render_yaml_review(yaml_ops), unsafe_allow_html=True)
         except Exception as e:
@@ -459,7 +471,11 @@ def step_code_generation():
         st.markdown(render_pipeline_remembered(hits), unsafe_allow_html=True)
         # Exclude enrichment columns — they're shown in the enrichment section below
         enrichment_col_set = set(state.get("enrichment_columns_to_generate", []))
-        gap_hits = {col: blk for col, blk in block_hits_map.items() if col not in enrichment_col_set}
+        gap_hits = {
+            col: blk
+            for col, blk in block_hits_map.items()
+            if col not in enrichment_col_set
+        }
         if gap_hits:
             st.info(
                 "Pipeline blocks will handle: "
@@ -558,6 +574,7 @@ def step_results():
     if yaml_path:
         try:
             from src.blocks.mapping_io import read_mapping_yaml
+
             yaml_op_count = len(read_mapping_yaml(yaml_path))
         except Exception:
             pass

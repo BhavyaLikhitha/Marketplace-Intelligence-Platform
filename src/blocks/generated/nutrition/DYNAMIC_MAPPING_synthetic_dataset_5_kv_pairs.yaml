@@ -15,13 +15,3 @@ column_operations:
   type: string
   action: set_default
   default_value: USDA
-- target: serving_size
-  type: float
-  action: set_null
-  status: missing
-  reason: No source data available
-- target: serving_size_unit
-  type: string
-  action: set_null
-  status: missing
-  reason: No source data available

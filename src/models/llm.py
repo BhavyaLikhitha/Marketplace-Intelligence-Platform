@@ -33,7 +33,7 @@ def get_enrichment_llm() -> str:
 
 
 def get_critic_llm() -> str:
-    """Model string for Agent 1.5 — gap analysis critic.
+    """Model string for Agent 2 — gap analysis critic.
 
     Uses a reasoning model for higher accuracy on verification tasks.
     Falls back to orchestrator model if reasoning model unavailable.

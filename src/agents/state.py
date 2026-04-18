@@ -36,7 +36,6 @@ class DerivedGap(TypedDict):
     sample_values: list[str]
 
 
-
 class PipelineState(TypedDict, total=False):
     """
     Full state flowing through the LangGraph pipeline.
@@ -57,7 +56,9 @@ class PipelineState(TypedDict, total=False):
     unified_schema_existed: bool  # True if schema was loaded, False if derived
     gaps: list[GapItem]  # backward-compat union of derivable_gaps + missing_columns
     derivable_gaps: list[DerivedGap]  # gaps resolvable by transforming source columns
-    missing_columns: list[MissingColumn]  # columns with no source data or derivation path
+    missing_columns: list[
+        MissingColumn
+    ]  # columns with no source data or derivation path
     column_mapping: dict  # source_col -> unified_col
     enrichment_columns_to_generate: list[str]  # enrichment cols absent from source
     mapping_warnings: list[str]  # required unified cols not covered by mapping
@@ -65,17 +66,19 @@ class PipelineState(TypedDict, total=False):
     mapping_yaml_path: Optional[str]  # path to generated YAML mapping file
 
     # Schema operations (new 8-primitive format from LLM)
-    operations: list[dict]           # full operations[] list from analyze_schema_node
-    unresolvable_gaps: list[dict]    # gaps LLM flagged as unresolvable (audit trail)
-    enrich_alias_ops: list[dict]     # [{target: str, source: str}] — required cols aliased to enrichment cols
+    operations: list[dict]  # full operations[] list from analyze_schema_node
+    unresolvable_gaps: list[dict]  # gaps LLM flagged as unresolvable (audit trail)
+    enrich_alias_ops: list[
+        dict
+    ]  # [{target: str, source: str}] — required cols aliased to enrichment cols
 
-    # Agent 1.5 critic output
-    revised_operations: list[dict]   # Agent 1.5's corrected operations list
-    critique_notes: list[dict]       # Agent 1.5's audit notes, one entry per correction
+    # Agent 2 critic output
+    revised_operations: list[dict]  # Agent 2's corrected operations list
+    critique_notes: list[dict]  # Agent 2's audit notes, one entry per correction
 
     # Registry results (set by registry_check node)
     block_registry_hits: dict  # target_col -> block_name
-    registry_misses: list[GapItem]   # always empty — no Agent 2
+    registry_misses: list[GapItem]  # always empty — no Agent 2
 
     # Pipeline execution
     block_sequence: list[str]
