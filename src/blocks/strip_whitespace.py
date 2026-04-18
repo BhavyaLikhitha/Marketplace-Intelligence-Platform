@@ -15,5 +15,8 @@ class StripWhitespaceBlock(Block):
         df = df.copy()
         str_cols = df.select_dtypes(include=["object"]).columns
         for col in str_cols:
-            df[col] = df[col].str.strip().replace("", pd.NA)
+            series = df[col]
+            if isinstance(series, pd.DataFrame):
+                continue  # duplicate column name — skip
+            df[col] = series.str.strip().replace("", pd.NA)
         return df
