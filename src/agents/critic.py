@@ -78,41 +78,7 @@ def critique_schema_node(state: PipelineState) -> dict:
         logger.info(f"Agent 2 made {len(critique_notes)} correction(s)")
         for note in critique_notes:
             rule = note.get("rule", "?")
-            column = note.get("target_column", "?")
-            logger.info(f"  - [{rule}] {column}")
-
-    return {
-        "revised_operations": revised_operations,
-        "critique_notes": critique_notes,
-    }
-
-    model = get_critic_llm()
-    logger.info(f"Agent 2 critique using model: {model}")
-
-    result = call_llm_json(
-        model=model,
-        messages=[
-            {
-                "role": "user",
-                "content": CRITIC_PROMPT.format(
-                    source_profile=json.dumps(columns_only, indent=2),
-                    source_meta=json.dumps(meta_block, indent=2),
-                    unified_schema=json.dumps({"columns": mappable_cols}, indent=2),
-                    column_mapping=json.dumps(column_mapping, indent=2),
-                    operations=json.dumps(operations, indent=2),
-                ),
-            }
-        ],
-    )
-
-    revised_operations = result.get("revised_operations", operations)
-    critique_notes = result.get("critique_notes", [])
-
-    if critique_notes:
-        logger.info(f"Agent 2 made {len(critique_notes)} correction(s)")
-        for note in critique_notes:
-            rule = note.get("rule", "?")
-            column = note.get("column", "?")
+            column = note.get("column") or note.get("target_column", "?")
             correction = note.get("correction", "")
             logger.info(f"  [{rule}] {column}: {correction}")
     else:

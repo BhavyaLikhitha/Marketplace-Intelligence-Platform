@@ -20,7 +20,7 @@ from src.ui.components import (
     render_log_panel,
     render_missing_columns,
     render_operations_review,
-    render_pipeline_remembered,
+
     render_quarantine_table,
     render_registry_results,
     render_sampling_stats,
@@ -69,13 +69,10 @@ def _setup_logging() -> None:
                   "sentence_transformers", "faiss", "transformers"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
 
-    # Purge by class name, not identity — isinstance fails across hot-reloads
+    # Check by class name, not identity — isinstance fails across hot-reloads
     # because module reload creates a new class object, breaking isinstance.
-    root.handlers = [
-        h for h in root.handlers
-        if type(h).__name__ != "StreamlitLogHandler"
-    ]
-    root.addHandler(StreamlitLogHandler())
+    if not any(type(h).__name__ == "StreamlitLogHandler" for h in root.handlers):
+        root.addHandler(StreamlitLogHandler())
 
 
 # ── Session state ─────────────────────────────────────────────────────────
@@ -337,11 +334,6 @@ def _step_2_code_generation() -> None:
                 st.session_state.error = str(exc)
                 st.error(f"Registry check failed: {exc}")
                 return
-
-        hits = st.session_state.pipeline_state.get("block_registry_hits", {})
-        misses = st.session_state.pipeline_state.get("registry_misses", [])
-        if hits:
-            st.markdown(render_pipeline_remembered(hits), unsafe_allow_html=True)
 
         with st.spinner("Agent 3 planning block sequence…"):
             try:

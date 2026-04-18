@@ -49,9 +49,9 @@ class PipelineRunner:
 
         if column_mapping:
             df = df.rename(columns=column_mapping)
-            if df.columns.duplicated().any():
-                dupes = df.columns[df.columns.duplicated(keep=False)].tolist()
-                logger.warning(f"Duplicate columns after rename {dupes} — keeping last occurrence")
+            dupe_mask = df.columns.duplicated(keep=False)
+            if dupe_mask.any():
+                logger.warning(f"Duplicate columns after rename {df.columns[dupe_mask].tolist()} — keeping last occurrence")
                 df = df.loc[:, ~df.columns.duplicated(keep="last")]
             audit_log.append(
                 {

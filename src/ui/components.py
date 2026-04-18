@@ -4,6 +4,47 @@ from __future__ import annotations
 
 import html
 
+_LOG_LEVEL_CSS = {
+    "INFO": "log-info",
+    "WARNING": "log-warn",
+    "WARN": "log-warn",
+    "ERROR": "log-error",
+    "CRITICAL": "log-error",
+    "DEBUG": "log-debug",
+}
+
+_PRIMITIVE_BADGE_CLS = {
+    "RENAME": "badge-map",
+    "CAST": "badge-derivable",
+    "FORMAT": "badge-derivable",
+    "DELETE": "badge-drop",
+    "ADD": "badge-add",
+    "SPLIT": "badge-derive",
+    "UNIFY": "badge-derivable",
+    "DERIVE": "badge-derive",
+    "ENRICH_ALIAS": "badge-alias",
+}
+
+_ACTION_BADGE = {
+    "set_null": '<span class="badge badge-missing">SET NULL</span>',
+    "set_default": '<span class="badge badge-map">SET DEFAULT</span>',
+    "type_cast": '<span class="badge badge-derivable">TYPE CAST</span>',
+    "rename": '<span class="badge badge-map">RENAME</span>',
+    "drop_column": '<span class="badge badge-drop">DROP</span>',
+    "json_array_extract_multi": '<span class="badge badge-derive">JSON SPLIT</span>',
+    "split_column": '<span class="badge badge-derive">SPLIT</span>',
+    "coalesce": '<span class="badge badge-derivable">COALESCE</span>',
+    "concat_columns": '<span class="badge badge-derivable">CONCAT</span>',
+    "value_map": '<span class="badge badge-derivable">VALUE MAP</span>',
+    "parse_date": '<span class="badge badge-derivable">PARSE DATE</span>',
+    "regex_replace": '<span class="badge badge-derivable">REGEX</span>',
+    "regex_extract": '<span class="badge badge-derivable">REGEX</span>',
+    "conditional_map": '<span class="badge badge-derive">COND MAP</span>',
+    "expression": '<span class="badge badge-derive">EXPR</span>',
+    "contains_flag": '<span class="badge badge-derive">FLAG</span>',
+    "extract_json_field": '<span class="badge badge-derive">JSON FIELD</span>',
+}
+
 
 def render_step_bar(
     current_step: int, steps: list[str], max_completed: int = -1
@@ -314,7 +355,7 @@ def render_registry_results(hits: dict, misses: list[dict]) -> str:
         rows.append(
             f'<tr><td class="col-unified">{html.escape(key)}</td>'
             f'<td><span class="badge badge-hit">HIT</span></td>'
-            f'<td style="color:#3fb950">Reusing saved function (zero cost)</td></tr>'
+            f'<td style="color:#3fb950">YAML mapping exists on disk — no LLM call needed</td></tr>'
         )
     for gap in misses:
         target = gap.get("target_column", "?")
@@ -489,21 +530,6 @@ def render_enrichment_breakdown(stats: dict) -> str:
         )
 
     return f'<div class="enrich-breakdown">{"".join(bars)}</div>'
-
-
-def render_pipeline_remembered(hits: dict) -> str:
-    """Render a 'Pipeline Remembered' banner when all gaps are registry hits."""
-    rows = "".join(f"<li><code>{html.escape(k)}</code></li>" for k in hits)
-    count = len(hits)
-    return (
-        '<div class="remembered-banner">'
-        f'<div class="remembered-title">&#9679; Pipeline Remembered ({count} function{"s" if count != 1 else ""})</div>'
-        '<ul class="remembered-list">'
-        f"{rows}"
-        "</ul>"
-        '<div class="remembered-sub">All schema gaps covered by the function registry — Agent 2 was not called.</div>'
-        "</div>"
-    )
 
 
 def render_run_history(runs: list[dict]) -> str:
@@ -686,29 +712,16 @@ def render_log_panel(
     level_filter: str = "ALL",
     step_filter: str = "ALL",
     tall: bool = False,
+    max_entries: int = 500,
 ) -> str:
-    """Render structured log entries as a dark terminal-style panel.
-
-    Args:
-        entries: List of {time, level, logger, event, step} dicts.
-        level_filter: "ALL" or a specific level string.
-        step_filter: "ALL" or a step number string.
-        tall: Use .log-panel-tall class for taller max-height.
-    """
+    """Render structured log entries as a dark terminal-style panel."""
     filtered = entries
     if level_filter != "ALL":
         filtered = [e for e in filtered if e.get("level") == level_filter]
     if step_filter != "ALL":
         filtered = [e for e in filtered if str(e.get("step", "")) == step_filter]
-
-    level_cls_map = {
-        "INFO": "log-info",
-        "WARNING": "log-warn",
-        "WARN": "log-warn",
-        "ERROR": "log-error",
-        "CRITICAL": "log-error",
-        "DEBUG": "log-debug",
-    }
+    if len(filtered) > max_entries:
+        filtered = filtered[-max_entries:]
 
     lines = []
     for e in filtered:
@@ -716,7 +729,7 @@ def render_log_panel(
         level = str(e.get("level", "INFO"))
         logger_name = html.escape(str(e.get("logger", "")))
         event = html.escape(str(e.get("event", "")))
-        lcls = level_cls_map.get(level, "log-info")
+        lcls = _LOG_LEVEL_CSS.get(level, "log-info")
         lines.append(
             f'<div class="log-entry">'
             f'<span class="log-time">{t}</span> '
@@ -744,37 +757,6 @@ def render_operations_review(operations: list[dict]) -> str:
     if not operations:
         return '<p style="color:#6e7781">No operations to review.</p>'
 
-    primitive_badge_cls = {
-        "RENAME": "badge-map",
-        "CAST": "badge-derivable",
-        "FORMAT": "badge-derivable",
-        "DELETE": "badge-drop",
-        "ADD": "badge-add",
-        "SPLIT": "badge-derive",
-        "UNIFY": "badge-derivable",
-        "DERIVE": "badge-derive",
-        "ENRICH_ALIAS": "badge-alias",
-    }
-    action_badge = {
-        "set_null": '<span class="badge badge-missing">SET NULL</span>',
-        "set_default": '<span class="badge badge-map">SET DEFAULT</span>',
-        "type_cast": '<span class="badge badge-derivable">TYPE CAST</span>',
-        "rename": '<span class="badge badge-map">RENAME</span>',
-        "drop_column": '<span class="badge badge-drop">DROP</span>',
-        "json_array_extract_multi": '<span class="badge badge-derive">JSON SPLIT</span>',
-        "split_column": '<span class="badge badge-derive">SPLIT</span>',
-        "coalesce": '<span class="badge badge-derivable">COALESCE</span>',
-        "concat_columns": '<span class="badge badge-derivable">CONCAT</span>',
-        "value_map": '<span class="badge badge-derivable">VALUE MAP</span>',
-        "parse_date": '<span class="badge badge-derivable">PARSE DATE</span>',
-        "regex_replace": '<span class="badge badge-derivable">REGEX</span>',
-        "regex_extract": '<span class="badge badge-derivable">REGEX</span>',
-        "conditional_map": '<span class="badge badge-derive">COND MAP</span>',
-        "expression": '<span class="badge badge-derive">EXPR</span>',
-        "contains_flag": '<span class="badge badge-derive">FLAG</span>',
-        "extract_json_field": '<span class="badge badge-derive">JSON FIELD</span>',
-    }
-
     rows = []
     for op in operations:
         primitive = str(op.get("primitive", "?"))
@@ -783,9 +765,9 @@ def render_operations_review(operations: list[dict]) -> str:
         action = str(op.get("action", "?"))
         target_type = html.escape(str(op.get("target_type", "?")))
 
-        prim_cls = primitive_badge_cls.get(primitive, "badge-map")
+        prim_cls = _PRIMITIVE_BADGE_CLS.get(primitive, "badge-map")
         prim_html = f'<span class="badge {prim_cls}">{html.escape(primitive)}</span>'
-        act_html = action_badge.get(action, f'<span class="badge">{html.escape(action)}</span>')
+        act_html = _ACTION_BADGE.get(action, f'<span class="badge">{html.escape(action)}</span>')
 
         rows.append(
             f"<tr>"
