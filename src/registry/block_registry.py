@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import importlib.util
 import logging
 from pathlib import Path
 
@@ -64,39 +63,7 @@ def _discover_generated_blocks() -> dict[str, Block]:
 
         domain = domain_dir.name
 
-        # Discover Python-based generated blocks
-        for block_file in domain_dir.glob("*.py"):
-            if block_file.name.startswith("_") or block_file.stem == "base":
-                continue
-
-            try:
-                module_name = f"src.blocks.generated.{domain}.{block_file.stem}"
-                spec = importlib.util.spec_from_file_location(
-                    module_name, str(block_file)
-                )
-                module = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(module)
-
-                for attr_name in dir(module):
-                    attr = getattr(module, attr_name)
-                    if (
-                        isinstance(attr, type)
-                        and issubclass(attr, Block)
-                        and attr is not Block
-                        and hasattr(attr, "run")
-                    ):
-                        block_instance = attr()
-                        generated[block_instance.name] = block_instance
-                        logger.info(
-                            f"Loaded generated block: {block_instance.name} "
-                            f"(domain: {domain}, file: {block_file.name})"
-                        )
-                        break
-
-            except Exception as e:
-                logger.error(f"Failed to load block from {block_file}: {e}")
-
-        # Discover YAML-based DynamicMappingBlocks
+        # Discover YAML-based DynamicMappingBlocks (only YAML files are used now)
         for yaml_file in domain_dir.glob("DYNAMIC_MAPPING_*.yaml"):
             try:
                 from src.blocks.dynamic_mapping import DynamicMappingBlock

@@ -135,13 +135,7 @@ class PipelineRunner:
                 generated_blocks = [
                     name
                     for name, block in self.block_registry.blocks.items()
-                    if (
-                        name.startswith("COLUMN_RENAME_")
-                        or name.startswith("COLUMN_DROP_")
-                        or name.startswith("FORMAT_TRANSFORM_")
-                        or name.startswith("DYNAMIC_MAPPING_")
-                        or name.startswith("DERIVE_")
-                    )
+                    if name.startswith("DYNAMIC_MAPPING_")
                     and (
                         domain is None
                         or getattr(block, "domain", "all") in ("all", domain)

@@ -1,7 +1,6 @@
 """DynamicMappingBlock — declarative YAML-driven column operations.
 
-Handles all schema gap types declaratively, eliminating the need for
-LLM-generated Python blocks. Operations are defined in a YAML file and
+Handles all schema gap types declaratively. Operations are defined in a YAML file and
 executed deterministically with correct null handling.
 
 Supported actions:

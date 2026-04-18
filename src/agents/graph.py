@@ -57,13 +57,7 @@ def plan_sequence_node(state: PipelineState) -> dict:
     )
     blocks_metadata = block_reg.get_blocks_with_metadata(pool)
 
-    generated_block_prefixes = (
-        "COLUMN_RENAME_",
-        "COLUMN_DROP_",
-        "FORMAT_TRANSFORM_",
-        "DYNAMIC_MAPPING_",
-        "DERIVE_",
-    )
+    generated_block_prefixes = ("DYNAMIC_MAPPING_",)
 
     gap_summary = {
         "gaps_detected": len(gaps),

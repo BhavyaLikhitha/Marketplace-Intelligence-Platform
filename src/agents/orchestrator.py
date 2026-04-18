@@ -706,13 +706,7 @@ def check_registry_node(state: PipelineState) -> dict:
             logger.info(f"Missing column '{target_col}' → YAML set_null")
 
         # Phase B: Derivable gaps → registry check or YAML
-        generated_block_prefixes = (
-            "COLUMN_RENAME_",
-            "COLUMN_DROP_",
-            "FORMAT_TRANSFORM_",
-            "DYNAMIC_MAPPING_",
-            "DERIVE_",
-        )
+        generated_block_prefixes = ("DYNAMIC_MAPPING_",)
 
         for gap in derivable_gaps:
             target_col = gap.get("target_column", "")
@@ -737,21 +731,9 @@ def check_registry_node(state: PipelineState) -> dict:
                 block_hits[target_col] = provider
                 continue
 
-            found_existing = False
-            for block_name in block_reg.blocks.keys():
-                if block_name.startswith(generated_block_prefixes):
-                    if target_col in block_name or block_name.endswith(
-                        f"_{target_col}"
-                    ):
-                        logger.info(
-                            f"Generated block found for gap '{target_col}': {block_name}"
-                        )
-                        block_hits[target_col] = block_name
-                        found_existing = True
-                        break
-
-            if found_existing:
-                continue
+            # Note: In YAML-based architecture, we don't search for column-specific generated blocks
+            # All gaps are handled by the domain's DynamicMappingBlock via YAML operations
+            pass
 
             if full_op:
                 yaml_op = _llm_op_to_yaml(full_op, column_mapping)
