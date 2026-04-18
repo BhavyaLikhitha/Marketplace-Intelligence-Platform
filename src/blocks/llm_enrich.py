@@ -69,7 +69,7 @@ class LLMEnrichBlock(Block):
         # Strategy 3: RAG-augmented LLM (primary_category only)
         df, needs_enrichment, s3_stats = llm_enrich(df, enrich_cols, needs_enrichment)
         stats["llm"] = s3_stats["resolved"]
-        stats["unresolved"] = int(needs_enrichment.sum())
+        stats["unresolved"] = int(df["primary_category"].isna().sum()) if "primary_category" in df.columns else 0
         logger.info(f"  S3 (RAG-LLM): resolved {stats['llm']} rows")
         logger.info(f"  Unresolved: {stats['unresolved']} rows")
 

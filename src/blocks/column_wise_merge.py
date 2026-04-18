@@ -22,6 +22,7 @@ class ColumnWiseMergeBlock(Block):
             return df
 
         df = df.copy()
+        df.attrs = {}  # prevent pandas deepcopy overhead in groupby __finalize__
 
         def pick_best(series: pd.Series) -> object:
             """Pick the most complete (longest non-null) value from a group."""

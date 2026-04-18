@@ -3,12 +3,12 @@ column_operations:
   type: float
   action: regex_extract
   source: serving_size
-  pattern: ([0-9]+\.?[0-9]*)
+  pattern: "[0-9]+\\.?[0-9]*"
 - target: serving_size_unit
   type: string
   action: regex_extract
   source: serving_size
-  pattern: (g|gram|ml|kg|l|oz|lb|pcs|piece|serving|portion|cup|tbsp|tsp|pack|packet|sachet|tablet|capsule|drop|dose|unit|stick|bar|slice|bottle|can|jar|tube|scoop|bag|box|tin|pot|tub|carton|pouch|squeeze|spray|roll|ball|balloon|block|brick|bundle|case|cluster|container|envelope|packet|package|parcel|portion|pouch|sachet|satchel|sheath|sleeve|strip|tube|wrapper)
+  pattern: "g|gram|ml|kg|l|oz|lb|pcs|piece|serving|portion|cup|tbsp|tsp|pack|packet|sachet|tablet|capsule|drop|dose|unit|stick|bar|slice|bottle|can|jar|tube|scoop|bag|box|tin|pot|tub|carton|pouch|squeeze|spray|roll|ball|balloon|block|brick|bundle|case|cluster|container|envelope|packet|package|parcel|portion|pouch|sachet|satchel|sheath|sleeve|strip|tube|wrapper"
 - target: serving_size_unit
   type: string
   action: value_map

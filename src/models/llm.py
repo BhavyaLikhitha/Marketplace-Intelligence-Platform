@@ -59,17 +59,12 @@ def call_llm(model: str, messages: list[dict], temperature: float = 0.0) -> str:
 
 def call_llm_json(model: str, messages: list[dict], temperature: float = 0.0) -> dict:
     """LLM call that parses response as JSON. Falls back to extracting JSON from markdown."""
+    import re
     raw = call_llm(model, messages, temperature)
     try:
         return json.loads(raw)
     except json.JSONDecodeError:
-        # Try extracting JSON from markdown code block
-        if "```json" in raw:
-            start = raw.index("```json") + 7
-            end = raw.index("```", start)
-            return json.loads(raw[start:end].strip())
-        if "```" in raw:
-            start = raw.index("```") + 3
-            end = raw.index("```", start)
-            return json.loads(raw[start:end].strip())
+        m = re.search(r'```(?:json)?\s*([\s\S]*?)```', raw)
+        if m:
+            return json.loads(m.group(1).strip())
         raise

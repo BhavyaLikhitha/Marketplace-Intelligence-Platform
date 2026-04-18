@@ -310,10 +310,12 @@ def _handle_regex_extract(df: pd.DataFrame, op: dict) -> pd.DataFrame:
     source = op.get("source", op["target"])
     target = op["target"]
     pattern = op.get("pattern", "")
-    group = op.get("group", 1)
     if source not in df.columns:
         return _handle_set_null(df, op)
-    extracted = df[source].astype("string").str.extract(f"({pattern})", expand=False)
+    # Don't double-wrap: if pattern already has a capture group, use it as-is
+    has_group = bool(re.search(r'(?<!\\)\((?!\?)', pattern))
+    extract_pattern = pattern if has_group else f"({pattern})"
+    extracted = df[source].astype("string").str.extract(extract_pattern, expand=False)
     df[target] = extracted
     if source != target and source in df.columns:
         df = df.drop(columns=[source])

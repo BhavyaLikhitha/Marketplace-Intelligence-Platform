@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 import pandas as pd
 
@@ -175,7 +176,12 @@ class PipelineRunner:
         """
         config = config or {}
         all_audit_logs: list[dict] = []
-        all_chunks: list[pd.DataFrame] = []
+        chunk_paths: list[Path] = []
+
+        run_id = config.get("run_id", "run")
+        output_dir = Path(config.get("output_dir", "output"))
+        chunk_dir = output_dir / ".chunks"
+        chunk_dir.mkdir(parents=True, exist_ok=True)
 
         reader = CsvStreamReader(source_path, chunk_size=chunk_size, delimiter=sep)
 
@@ -187,11 +193,15 @@ class PipelineRunner:
                 column_mapping,
                 config,
             )
-            all_chunks.append(chunk_result)
+            chunk_path = chunk_dir / f"{run_id}_chunk_{i:04d}.parquet"
+            chunk_result.to_parquet(chunk_path, index=False)
+            chunk_paths.append(chunk_path)
             all_audit_logs.append({"chunk_index": i, "logs": chunk_log})
 
-        if not all_chunks:
+        if not chunk_paths:
             return pd.DataFrame(), all_audit_logs
 
-        combined_df = pd.concat(all_chunks, ignore_index=True)
+        combined_df = pd.concat(
+            [pd.read_parquet(p) for p in chunk_paths], ignore_index=True
+        )
         return combined_df, all_audit_logs

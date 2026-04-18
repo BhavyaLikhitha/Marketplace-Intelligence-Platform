@@ -63,9 +63,13 @@ class FuzzyDeduplicateBlock(Block):
         names = df["product_name"].fillna("").astype(str).str.lower()
         brands = df["brand_name"].fillna("").astype(str).str.lower() if "brand_name" in df.columns else pd.Series([""] * n)
 
+        # Rows with no usable name stay as singletons — exclude from blocking to avoid
+        # collapsing all null-name rows into one massive cluster via the "" key
+        valid_name_mask = names.str.len() > 0
+
         blocks: dict[str, list[int]] = {}
-        for idx, name in enumerate(names):
-            key = name[:3].strip()
+        for idx in names[valid_name_mask].index:
+            key = names.iloc[idx][:3].strip()
             if key:
                 blocks.setdefault(key, []).append(idx)
 

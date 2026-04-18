@@ -52,6 +52,7 @@ class CsvStreamReader:
             na_values=self.na_values,
             keep_default_na=True,
             on_bad_lines=self.on_bad_lines,
+            low_memory=False,
         ):
             yield chunk
 
