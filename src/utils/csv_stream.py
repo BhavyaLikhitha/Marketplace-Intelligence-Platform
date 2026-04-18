@@ -3,13 +3,21 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
-from typing import Iterator, Optional
+from typing import Iterator, List, Optional
 
 import pandas as pd
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_CHUNK_SIZE = int(os.environ.get("CHUNK_SIZE", "10000"))
+
+NULL_SENTINELS: List[str] = [
+    "na", "Na", "NA", "n/a", "N/A", "n.a.", "N.A.",
+    "none", "None", "NONE", "null", "Null", "NULL",
+    "nan", "NaN", "NAN", "-", "--",
+    "not available", "not applicable",
+    "unknown", "Unknown", "UNKNOWN",
+]
 
 
 class CsvStreamReader:
@@ -21,11 +29,15 @@ class CsvStreamReader:
         chunk_size: int = DEFAULT_CHUNK_SIZE,
         encoding: str = "utf-8",
         delimiter: str = ",",
+        na_values: Optional[List[str]] = None,
+        on_bad_lines: str = "skip",
     ):
         self.file_path = Path(file_path)
         self.chunk_size = chunk_size
         self.encoding = encoding
         self.delimiter = delimiter
+        self.na_values = na_values if na_values is not None else NULL_SENTINELS
+        self.on_bad_lines = on_bad_lines
 
         if not self.file_path.exists():
             raise FileNotFoundError(f"Source file not found: {file_path}")
@@ -37,6 +49,9 @@ class CsvStreamReader:
             chunksize=self.chunk_size,
             encoding=self.encoding,
             delimiter=self.delimiter,
+            na_values=self.na_values,
+            keep_default_na=True,
+            on_bad_lines=self.on_bad_lines,
         ):
             yield chunk
 

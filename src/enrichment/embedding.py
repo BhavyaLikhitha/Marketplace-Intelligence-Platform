@@ -17,7 +17,7 @@ from src.enrichment.corpus import (
     CONFIDENCE_THRESHOLD_CATEGORY,
     add_to_corpus,
     build_seed_corpus,
-    knn_search,
+    knn_search_batch,
     load_corpus,
     save_corpus,
 )
@@ -74,22 +74,21 @@ def embedding_enrich(
         return df, needs_enrichment, {"resolved": 0}
 
     resolved = 0
-    for idx in df.index[mask]:
-        row = df.loc[idx]
-        try:
-            category, confidence, neighbors = knn_search(row, index, metadata)
-        except ImportError:
-            logger.warning("S2 KNN: faiss not installed, skipping Strategy 2")
-            break
-        except Exception as e:
-            logger.warning(f"S2 KNN: search failed for row {idx}: {e}")
-            neighbors = []
-            category = None
-            confidence = 0.0
+    unresolved_indices = list(df.index[mask])
+    unresolved_rows = [df.loc[idx] for idx in unresolved_indices]
 
-        # Store neighbors for S3 RAG prompt regardless of confidence
+    try:
+        batch_results = knn_search_batch(unresolved_rows, index, metadata)
+    except ImportError:
+        logger.warning("S2 KNN: faiss not installed, skipping Strategy 2")
+        needs_enrichment = df[enrich_cols].isna().any(axis=1)
+        return df, needs_enrichment, {"resolved": 0}
+    except Exception as e:
+        logger.warning(f"S2 KNN: batch search failed: {e}")
+        batch_results = [(None, 0.0, []) for _ in unresolved_indices]
+
+    for idx, row, (category, confidence, neighbors) in zip(unresolved_indices, unresolved_rows, batch_results):
         df.at[idx, "_knn_neighbors"] = json.dumps(neighbors)
-
         if category is not None and confidence >= CONFIDENCE_THRESHOLD_CATEGORY:
             df.at[idx, "primary_category"] = category
             add_to_corpus(row, category, index, metadata)

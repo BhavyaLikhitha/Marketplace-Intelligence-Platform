@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import logging
 
+import numpy as np
 import pandas as pd
 from rapidfuzz import fuzz
+from rapidfuzz.process import cdist as rf_cdist
 from src.blocks.base import Block
 
 logger = logging.getLogger(__name__)
@@ -67,27 +69,29 @@ class FuzzyDeduplicateBlock(Block):
             if key:
                 blocks.setdefault(key, []).append(idx)
 
-        # Pairwise comparison within blocks
+        # Vectorized comparison within blocks via rapidfuzz cdist
         uf = UnionFind(n)
         for block_indices in blocks.values():
             if len(block_indices) < 2:
                 continue
-            for i in range(len(block_indices)):
-                for j in range(i + 1, len(block_indices)):
-                    a, b = block_indices[i], block_indices[j]
-                    name_score = fuzz.token_sort_ratio(names.iloc[a], names.iloc[b])
-                    brand_score = fuzz.ratio(brands.iloc[a], brands.iloc[b])
-                    combined_a = f"{names.iloc[a]} {brands.iloc[a]}"
-                    combined_b = f"{names.iloc[b]} {brands.iloc[b]}"
-                    combined_score = fuzz.token_sort_ratio(combined_a, combined_b)
+            block_names = [names.iloc[i] for i in block_indices]
+            block_brands = [brands.iloc[i] for i in block_indices]
+            block_combined = [f"{nm} {br}" for nm, br in zip(block_names, block_brands)]
 
-                    weighted = (
-                        name_score * name_weight
-                        + brand_score * brand_weight
-                        + combined_score * combined_weight
-                    )
-                    if weighted >= threshold:
-                        uf.union(a, b)
+            name_mat = rf_cdist(block_names, block_names, scorer=fuzz.token_sort_ratio, workers=-1) / 100.0
+            brand_mat = rf_cdist(block_brands, block_brands, scorer=fuzz.ratio, workers=-1) / 100.0
+            combined_mat = rf_cdist(block_combined, block_combined, scorer=fuzz.token_sort_ratio, workers=-1) / 100.0
+
+            weighted_mat = (
+                name_mat * name_weight
+                + brand_mat * brand_weight
+                + combined_mat * combined_weight
+            )
+
+            pairs = np.argwhere(weighted_mat >= threshold / 100.0)
+            for i_local, j_local in pairs:
+                if i_local < j_local:
+                    uf.union(block_indices[i_local], block_indices[j_local])
 
         # Assign cluster IDs
         cluster_map: dict[int, int] = {}

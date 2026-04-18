@@ -157,6 +157,7 @@ class PipelineRunner:
         column_mapping: dict[str, str] | None = None,
         config: dict | None = None,
         chunk_size: int = DEFAULT_CHUNK_SIZE,
+        sep: str = ",",
     ) -> tuple[pd.DataFrame, list[dict]]:
         """
         Execute pipeline in chunks for large files.
@@ -167,15 +168,16 @@ class PipelineRunner:
             column_mapping: source_col -> unified_col rename mapping
             config: Block configuration
             chunk_size: Rows per chunk
+            sep: CSV delimiter (auto-detected by load_source_node)
 
         Returns:
             (result_df, audit_log)
         """
         config = config or {}
         all_audit_logs: list[dict] = []
-        combined_df: pd.DataFrame | None = None
+        all_chunks: list[pd.DataFrame] = []
 
-        reader = CsvStreamReader(source_path, chunk_size=chunk_size)
+        reader = CsvStreamReader(source_path, chunk_size=chunk_size, delimiter=sep)
 
         for i, chunk_df in enumerate(reader):
             logger.info(f"Processing chunk {i + 1} ({len(chunk_df)} rows)")
@@ -185,11 +187,11 @@ class PipelineRunner:
                 column_mapping,
                 config,
             )
+            all_chunks.append(chunk_result)
             all_audit_logs.append({"chunk_index": i, "logs": chunk_log})
 
-            if combined_df is None:
-                combined_df = chunk_result
-            else:
-                combined_df = pd.concat([combined_df, chunk_result], ignore_index=True)
+        if not all_chunks:
+            return pd.DataFrame(), all_audit_logs
 
+        combined_df = pd.concat(all_chunks, ignore_index=True)
         return combined_df, all_audit_logs

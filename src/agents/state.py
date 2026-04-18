@@ -46,10 +46,12 @@ class PipelineState(TypedDict, total=False):
 
     # Input
     source_path: str
-    source_df: Any  # pd.DataFrame — not JSON-serializable, in-memory only
+    source_df: Any  # pd.DataFrame — sample only (schema analysis + UI preview)
     source_schema: dict  # column_name -> {dtype, null_rate, sample_values}
+    source_sep: str  # CSV delimiter auto-detected during load
     domain: str  # "nutrition", "safety", "pricing"
     enable_enrichment: bool  # user toggle — False skips allergen + llm_enrich blocks
+    chunk_size: int  # rows per processing chunk (default from DEFAULT_CHUNK_SIZE)
 
     # Schema analysis (set by orchestrator node)
     unified_schema: dict

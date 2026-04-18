@@ -19,7 +19,7 @@ from src.agents.critic import critique_schema_node
 from src.agents.prompts import SEQUENCE_PLANNING_PROMPT
 from src.models.llm import call_llm_json, get_orchestrator_llm
 from src.registry.block_registry import BlockRegistry
-from src.pipeline.runner import PipelineRunner
+from src.pipeline.runner import PipelineRunner, DEFAULT_CHUNK_SIZE
 
 logger = logging.getLogger(__name__)
 
@@ -143,17 +143,18 @@ def run_pipeline_node(state: PipelineState) -> dict:
         "unified_schema": state.get("unified_schema"),
     }
 
-    df = state.get("source_df")
-    if df is None:
-        raise ValueError("Missing 'source_df' in state — load_source_node did not complete successfully.")
-    df = df.copy()
+    source_path = state.get("source_path")
+    if source_path is None:
+        raise ValueError("Missing 'source_path' in state — cannot stream data for pipeline execution.")
     column_mapping = state.get("column_mapping", {})
 
-    result_df, audit_log = runner.run(
-        df=df,
+    result_df, audit_log = runner.run_chunked(
+        source_path=source_path,
         block_sequence=block_sequence,
         column_mapping=column_mapping,
         config=config,
+        chunk_size=state.get("chunk_size", DEFAULT_CHUNK_SIZE),
+        sep=state.get("source_sep", ","),
     )
 
     dq_pre = (
