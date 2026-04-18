@@ -1,0 +1,13 @@
+column_operations:
+- source: productID
+  action: drop_column
+- target: serving_size
+  type: float
+  action: set_null
+  status: missing
+  reason: No source data available
+- target: serving_size_unit
+  type: string
+  action: set_null
+  status: missing
+  reason: No source data available

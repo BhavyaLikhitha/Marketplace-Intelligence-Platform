@@ -1,585 +1,599 @@
-"""Streamlit UI - ETL Pipeline Wizard.
-
-Rebuilt from scratch to align with the 3-agent LangGraph pipeline architecture.
-Maps 5 wizard steps to 7 pipeline nodes, displays Agent 1/2/3 activity distinctly,
-and implements all HITL gates correctly.
-"""
+"""Streamlit 5-step HITL wizard for the Schema-Driven ETL Pipeline."""
 
 from __future__ import annotations
 
-import json
 import logging
 from datetime import datetime
 from pathlib import Path
 
-import pandas as pd
 import streamlit as st
-import structlog
-from streamlit import session_state as ss
+from dotenv import load_dotenv
 
-from src.agents.graph import NODE_MAP, run_step
-from src.agents.state import PipelineState
-from src.schema.sampling import SamplingStrategy
-from src.agents.confidence import get_confidence_display
 from src.ui.components import (
-    render_step_bar,
-    render_source_profile,
-    render_schema_delta,
+    render_agent_header,
+    render_block_metrics_table,
+    render_block_waterfall,
+    render_critique_notes,
     render_dq_cards,
     render_enrichment_breakdown,
-    render_quarantine_table,
-    render_agent_header,
-    render_sampling_stats,
-    render_confidence_badge,
-    render_extraction_only_flag,
     render_hitl_gate,
-    render_block_waterfall,
+    render_log_panel,
+    render_missing_columns,
+    render_operations_review,
+    render_pipeline_remembered,
+    render_quarantine_table,
     render_registry_results,
+    render_sampling_stats,
+    render_schema_delta,
+    render_source_profile,
+    render_step_bar,
+    render_summary_cards,
 )
 from src.ui.styles import GLOBAL_CSS
 
-structlog.configure(
-    processors=[
-        structlog.stdlib.filter_by_level,
-        structlog.stdlib.add_logger_name,
-        structlog.stdlib.add_log_level,
-        structlog.stdlib.PositionalArgumentsFormatter(),
-        structlog.processors.TimeStamper(fmt="iso"),
-        structlog.processors.StackInfoRenderer(),
-        structlog.processors.format_exc_info,
-        structlog.processors.UnicodeDecoder(),
-    ],
-    context_class=dict,
-    logger_factory=structlog.stdlib.LoggerFactory(),
-    cache_logger_on_first_use=True,
-)
-
-logger = structlog.get_logger(__name__)
+load_dotenv()
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 DATA_DIR = PROJECT_ROOT / "data"
-OUTPUT_DIR = PROJECT_ROOT / "output"
 
-WIZARD_STEPS = [
-    "1. Select Source",
-    "2. Schema Analysis",
-    "3. Pipeline Planning",
-    "4. Execution",
-    "5. Results",
-]
-
-AGENT_LABELS = {
-    1: ("Orchestrator", "Schema Analysis"),
-    2: ("Critic", "Schema Validation"),
-    3: ("Sequence Planner", "Execution Order"),
-}
-
-SAFETY_COLUMNS = {"allergens", "is_organic", "dietary_tags"}
+STEPS = ["Source", "Schema Analysis", "Code Gen", "Execution", "Results"]
+DOMAINS = ["nutrition", "safety", "pricing"]
 
 
-def init_session():
-    """Initialize Streamlit session state."""
-    if "step" not in ss:
-        ss.step = 0
-    if "max_completed" not in ss:
-        ss.max_completed = -1
-    if "state" not in ss:
-        ss.state: PipelineState = {}
-    if "runs" not in ss:
-        ss.runs = []
-    if "pipeline_logs" not in ss:
-        ss.pipeline_logs = []
+# ── Log capture ──────────────────────────────────────────────────────────
 
 
-def log_event(level: str, message: str, **kwargs):
-    """Add a log event to session state and output to structlog."""
-    timestamp = datetime.now().isoformat()
-    log_entry = {"timestamp": timestamp, "level": level, "message": message, **kwargs}
-    ss.pipeline_logs.append(log_entry)
-    getattr(logger, level)(message, **kwargs)
+class StreamlitLogHandler(logging.Handler):
+    """Appends structured log records to st.session_state.log_entries."""
 
-
-def can_navigate(step: int) -> bool:
-    """Check if user can navigate to a step."""
-    return step <= ss.max_completed
-
-
-def navigate_to_step(step: int):
-    """Navigate to a specific step if allowed."""
-    if step >= 0 and step < len(WIZARD_STEPS):
-        if step <= ss.max_completed:
-            ss.step = step
-            st.rerun()
-
-
-def step_select_source() -> bool:
-    """Step 1: Select source CSV file and domain."""
-    st.header("Select Data Source")
-    log_event("info", "Step 1: Select Source - entering")
-
-    st.markdown("Choose a CSV file from the `data/` directory and specify the domain.")
-
-    csv_files = []
-    if DATA_DIR.exists():
-        csv_files = [f.name for f in DATA_DIR.glob("*.csv")]
-
-    if not csv_files:
-        st.warning("No CSV files found in `data/` directory.")
-        st.info("Add CSV files to the `data/` folder to get started.")
-        return False
-
-    selected_file = st.selectbox(
-        "Source File",
-        csv_files,
-        index=0 if not ss.state.get("source_path") else None,
-    )
-
-    domain = st.selectbox(
-        "Domain",
-        ["nutrition", "safety", "pricing"],
-        index=0 if ss.state.get("domain") != "nutrition" else None,
-    )
-
-    enable_enrichment = st.toggle("Enable Enrichment", value=True)
-
-    if st.button("Load Source", type="primary"):
-        source_path = str(DATA_DIR / selected_file)
+    def emit(self, record: logging.LogRecord) -> None:
         try:
-            log_event("info", f"Loading CSV file: {selected_file}", file=selected_file)
-            df = pd.read_csv(source_path)
-            log_event(
-                "info",
-                f"Loaded {len(df)} rows, {len(df.columns)} columns",
-                rows=len(df),
-                columns=len(df.columns),
-            )
-            ss.state["source_path"] = source_path
-            ss.state["source_df"] = df
-            ss.state["domain"] = domain
-            ss.state["enable_enrichment"] = enable_enrichment
-
-            log_event("info", "Running load_source node")
-            result = run_step("load_source", ss.state)
-            ss.state.update(result)
-
-            log_event(
-                "info",
-                "load_source node completed",
-                source_schema_keys=len(ss.state.get("source_schema", {})),
-            )
-            ss.max_completed = max(ss.max_completed, 0)
-            ss.step = 1
-            st.rerun()
-        except Exception as e:
-            log_event("error", f"Failed to load source: {e}", error=str(e))
-            st.error(f"Failed to load source: {e}")
-            return False
-
-    return True
+            if "log_entries" not in st.session_state:
+                return
+            st.session_state.log_entries.append({
+                "time": datetime.fromtimestamp(record.created).strftime("%H:%M:%S"),
+                "level": record.levelname,
+                "logger": record.name,
+                "event": record.getMessage(),
+                "step": st.session_state.get("step", 0),
+            })
+        except Exception:
+            pass
 
 
-def step_schema_analysis() -> bool:
-    """Step 2: Schema analysis with Agent 1 and Agent 2."""
-    st.header("Schema Analysis")
-    log_event("info", "Step 2: Schema Analysis - entering")
+def _setup_logging() -> None:
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
 
+    for noisy in ("litellm", "LiteLLM", "httpx", "httpcore", "urllib3",
+                  "sentence_transformers", "faiss", "transformers"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
+
+    # Purge by class name, not identity — isinstance fails across hot-reloads
+    # because module reload creates a new class object, breaking isinstance.
+    root.handlers = [
+        h for h in root.handlers
+        if type(h).__name__ != "StreamlitLogHandler"
+    ]
+    root.addHandler(StreamlitLogHandler())
+
+
+# ── Session state ─────────────────────────────────────────────────────────
+
+
+def _init_state() -> None:
+    defaults: dict = {
+        "step": 0,
+        "max_completed": -1,
+        "pipeline_state": {},
+        "log_entries": [],
+        "hitl_decisions": {},
+        "error": None,
+    }
+    for k, v in defaults.items():
+        if k not in st.session_state:
+            st.session_state[k] = v
+
+
+def _advance(new_step: int) -> None:
+    st.session_state.max_completed = max(st.session_state.max_completed, new_step - 1)
+    st.session_state.step = new_step
+    st.rerun()
+
+
+def _run_step(step_name: str) -> None:
+    from src.agents.graph import run_step
+    st.session_state.pipeline_state = run_step(
+        step_name, st.session_state.pipeline_state
+    )
+
+
+# ── Step 0: Source Selection ──────────────────────────────────────────────
+
+
+def _step_0_source_selection() -> None:
     st.markdown(
         render_agent_header(
-            1,
-            AGENT_LABELS[1][0],
-            "Analyzing source schema and identifying gaps",
+            1, "Source Loader",
+            "Select a CSV file from data/ and choose a domain to begin.",
         ),
         unsafe_allow_html=True,
     )
 
-    source_schema = ss.state.get("source_schema", {})
-    if source_schema:
-        log_event(
-            "info",
-            f"Source schema analyzed: {len(source_schema)} columns",
-            columns=len(source_schema),
+    csv_files = sorted(DATA_DIR.glob("*.csv"))
+    if not csv_files:
+        st.error(f"No CSV files found in `{DATA_DIR}`. Add data files and restart.")
+        return
+
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        chosen = st.selectbox(
+            "CSV File",
+            [f.name for f in csv_files],
+            key="csv_select",
         )
-        st.subheader("Source Schema Profile")
+    with col2:
+        domain = st.selectbox("Domain", DOMAINS, key="domain_select")
+
+    source_path = str(DATA_DIR / chosen)
+
+    st.markdown(
+        render_hitl_gate(0, "Source Confirmation", ["Analyze Schema"]),
+        unsafe_allow_html=True,
+    )
+
+    if st.button("▶  Analyze Schema", type="primary", use_container_width=True):
+        ps: dict = {
+            "source_path": source_path,
+            "domain": domain,
+            "missing_column_decisions": {},
+        }
+        st.session_state.pipeline_state = ps
+        with st.spinner("Loading source + profiling schema…"):
+            try:
+                _run_step("load_source")
+                _run_step("analyze_schema")
+                st.session_state.error = None
+                _advance(1)
+            except Exception as exc:
+                st.session_state.error = str(exc)
+                st.error(f"Load failed: {exc}")
+
+
+# ── Step 1: Schema Analysis ───────────────────────────────────────────────
+
+
+def _step_1_schema_analysis() -> None:
+    ps = st.session_state.pipeline_state
+    source_schema = ps.get("source_schema", {})
+    column_mapping = ps.get("column_mapping", {})
+    gaps = ps.get("gaps", [])
+    unified_schema = ps.get("unified_schema")
+    missing_columns = ps.get("missing_columns", [])
+    derivable_gaps = ps.get("derivable_gaps", [])
+    enrich_alias_ops = ps.get("enrich_alias_ops", [])
+    enrichment_cols = ps.get("enrichment_columns_to_generate", [])
+    sampling_strategy = ps.get("sampling_strategy")
+
+    st.markdown(
+        render_agent_header(
+            1, "Schema Analyzer",
+            "Profiling source columns and mapping to the unified schema.",
+        ),
+        unsafe_allow_html=True,
+    )
+
+    if sampling_strategy:
+        st.markdown(render_sampling_stats(sampling_strategy), unsafe_allow_html=True)
+
+    with st.expander("Source Column Profile", expanded=True):
         st.markdown(render_source_profile(source_schema), unsafe_allow_html=True)
 
-    sampling_strategy = ss.state.get("sampling_strategy")
-    if sampling_strategy:
-        st.subheader("Sampling Statistics")
-        st.markdown(
-            render_sampling_stats(
-                {
-                    "method": sampling_strategy.get("method", "unknown"),
-                    "sample_size": sampling_strategy.get("sample_size", 0),
-                    "fallback_triggered": sampling_strategy.get(
-                        "fallback_triggered", False
-                    ),
-                    "fallback_reason": sampling_strategy.get("fallback_reason", ""),
-                }
-            ),
-            unsafe_allow_html=True,
-        )
-
-    unified_schema = ss.state.get("unified_schema")
-    column_mapping = ss.state.get("column_mapping", {})
-    derivable_gaps = ss.state.get("derivable_gaps", [])
-    missing_columns = ss.state.get("missing_columns", [])
-    enrichment_columns = ss.state.get("enrichment_columns_to_generate", [])
-    enrich_alias_ops = ss.state.get("enrich_alias_ops", [])
-
-    if column_mapping or derivable_gaps or missing_columns or enrichment_columns:
-        st.subheader("Schema Delta")
-        st.markdown(
-            render_schema_delta(
-                source_profile=source_schema,
-                column_mapping=column_mapping,
-                gaps=ss.state.get("gaps", []),
-                unified_schema=unified_schema,
-                missing_columns=missing_columns,
-                derivable_gaps=derivable_gaps,
-                enrichment_columns=enrichment_columns,
-                enrich_alias_ops=enrich_alias_ops,
-            ),
-            unsafe_allow_html=True,
-        )
-
-    if "operations" in ss.state:
-        st.subheader("Proposed Operations")
-        ops = ss.state.get("operations", [])
-        if ops:
-            for op in ops:
-                target = op.get("target", "?")
-                is_safety = target in SAFETY_COLUMNS
-                safety_badge = render_extraction_only_flag() if is_safety else ""
-                action = op.get("action", "?")
-                st.markdown(
-                    f"- **{target}**: {action} {safety_badge}",
-                    unsafe_allow_html=bool(safety_badge),
-                )
-
+    st.markdown('<div class="section-header">Schema Delta</div>', unsafe_allow_html=True)
     st.markdown(
-        render_agent_header(
-            2,
-            AGENT_LABELS[2][0],
-            "Reviewing schema mapping and validating operations",
+        render_schema_delta(
+            source_profile=source_schema,
+            column_mapping=column_mapping,
+            gaps=gaps,
+            unified_schema=unified_schema,
+            missing_columns=missing_columns,
+            derivable_gaps=derivable_gaps,
+            enrichment_columns=enrichment_cols,
+            enrich_alias_ops=enrich_alias_ops,
         ),
         unsafe_allow_html=True,
     )
 
-    if "revised_operations" in ss.state:
-        st.subheader("Critique Notes")
-        for note in ss.state.get("critique_notes", []):
-            st.info(note.get("description", ""))
+    if missing_columns:
+        st.markdown('<div class="section-header">Unavailable Columns</div>', unsafe_allow_html=True)
+        st.markdown(render_missing_columns(missing_columns), unsafe_allow_html=True)
+
+    _render_log_expander()
+
+    st.markdown(
+        render_hitl_gate(1, "Schema Review — approve to generate transforms", ["Generate Code"]),
+        unsafe_allow_html=True,
+    )
+
+    if st.button("▶  Generate Code & Run Critic", type="primary", use_container_width=True):
+        with st.spinner("Agent 2 (Critic) reviewing schema analysis…"):
+            try:
+                _run_step("critique_schema")
+                st.session_state.error = None
+                _advance(2)
+            except Exception as exc:
+                st.session_state.error = str(exc)
+                st.error(f"Critic failed: {exc}")
+
+
+# ── Step 2: Code Generation + HITL ───────────────────────────────────────
+
+
+def _step_2_code_generation() -> None:
+    ps = st.session_state.pipeline_state
+    revised_ops = ps.get("revised_operations") or ps.get("operations", [])
+    critique_notes = ps.get("critique_notes", [])
+    unresolvable = ps.get("unresolvable_gaps", [])
+
+    st.markdown(
+        render_agent_header(
+            2, "Critic",
+            "Validating Agent 1 output. Review transforms and make decisions on unavailable columns.",
+        ),
+        unsafe_allow_html=True,
+    )
+
+    # Agent 2 corrections
+    st.markdown('<div class="section-header">Agent 2 Corrections</div>', unsafe_allow_html=True)
+    st.markdown(render_critique_notes(critique_notes), unsafe_allow_html=True)
+
+    # Operations table
+    st.markdown('<div class="section-header">Schema Transform Operations</div>', unsafe_allow_html=True)
+    st.markdown(render_operations_review(revised_ops), unsafe_allow_html=True)
+
+    # HITL decisions for set_null ops + unresolvable
+    need_decision: list[dict] = [
+        op for op in revised_ops if op.get("action") == "set_null"
+    ]
+    seen_cols = {op.get("target_column") for op in need_decision}
+    for gap in unresolvable:
+        col = gap.get("target_column")
+        if col and col not in seen_cols:
+            need_decision.append({
+                "target_column": col,
+                "target_type": "string",
+                "action": "set_null",
+                "reason": gap.get("reason", "No source data"),
+            })
+            seen_cols.add(col)
+
+    decisions: dict = {}
+
+    if need_decision:
+        st.markdown(
+            '<div class="section-header">HITL Decisions — Unavailable Columns</div>',
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            render_hitl_gate(
+                2,
+                "Choose what to do with each unavailable column",
+                ["Accept Null", "Set Default", "Exclude"],
+            ),
+            unsafe_allow_html=True,
+        )
+
+        for op in need_decision:
+            tgt = op.get("target_column", "?")
+            reason = op.get("reason", "No source data available")
+            st.markdown(f"**`{tgt}`** &nbsp;—&nbsp; _{reason}_")
+            c_radio, c_val = st.columns([3, 2])
+            with c_radio:
+                choice = st.radio(
+                    f"Decision for `{tgt}`",
+                    ["Accept Null", "Set Default Value", "Exclude Column"],
+                    key=f"hitl_{tgt}",
+                    horizontal=True,
+                    label_visibility="collapsed",
+                )
+            default_val: str = ""
+            if choice == "Set Default Value":
+                with c_val:
+                    default_val = st.text_input(
+                        f"Default value for `{tgt}`",
+                        key=f"hitl_val_{tgt}",
+                    )
+
+            if choice == "Accept Null":
+                decisions[tgt] = {"action": "accept_null"}
+            elif choice == "Set Default Value":
+                decisions[tgt] = {"action": "set_default", "value": default_val}
+            else:
+                decisions[tgt] = {"action": "exclude"}
+    else:
+        decisions = {}
+
+    st.session_state.hitl_decisions = decisions
+
+    _render_log_expander()
 
     st.markdown(
         render_hitl_gate(
-            1,
-            "Schema Mapping Approval",
-            ["Approve & Continue", "Exclude Column", "Abort"],
+            2,
+            "Registry Check & Sequence Planning — approve to run pipeline",
+            ["Run Pipeline"],
         ),
         unsafe_allow_html=True,
     )
 
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        if st.button("Approve & Continue", type="primary"):
-            ss.state["hitl_decision_gate1"] = "approve"
-            result = run_step("check_registry", ss.state)
-            ss.state.update(result)
-            ss.max_completed = max(ss.max_completed, 1)
-            ss.step = 2
-            st.rerun()
-    with col2:
-        if st.button("Exclude Column"):
-            ss.state["hitl_decision_gate1"] = "exclude"
-            ss.step = 2
-            st.rerun()
-    with col3:
-        if st.button("Abort", type="secondary"):
-            ss.state["hitl_decision_gate1"] = "abort"
-            st.error("Pipeline aborted by user.")
-            return False
+    if st.button("▶  Check Registry & Plan Sequence", type="primary", use_container_width=True):
+        with st.spinner("Checking block registry…"):
+            try:
+                st.session_state.pipeline_state["missing_column_decisions"] = (
+                    st.session_state.hitl_decisions
+                )
+                _run_step("check_registry")
+            except Exception as exc:
+                st.session_state.error = str(exc)
+                st.error(f"Registry check failed: {exc}")
+                return
 
-    return True
+        hits = st.session_state.pipeline_state.get("block_registry_hits", {})
+        misses = st.session_state.pipeline_state.get("registry_misses", [])
+        if hits:
+            st.markdown(render_pipeline_remembered(hits), unsafe_allow_html=True)
+
+        with st.spinner("Agent 3 planning block sequence…"):
+            try:
+                _run_step("plan_sequence")
+                st.session_state.error = None
+                _advance(3)
+            except Exception as exc:
+                st.session_state.error = str(exc)
+                st.error(f"Sequence planning failed: {exc}")
 
 
-def step_critique_and_plan() -> bool:
-    """Step 3: Pipeline planning with Agent 3."""
-    st.header("Pipeline Planning")
-    log_event("info", "Step 3: Pipeline Planning - entering")
+# ── Step 3: Pipeline Execution ────────────────────────────────────────────
+
+
+def _step_3_pipeline_execution() -> None:
+    ps = st.session_state.pipeline_state
+    block_sequence = ps.get("block_sequence", [])
 
     st.markdown(
         render_agent_header(
-            3,
-            AGENT_LABELS[3][0],
-            "Determining optimal block execution order",
+            3, "Pipeline Runner",
+            "Executing the planned block sequence on the source DataFrame.",
         ),
         unsafe_allow_html=True,
     )
-
-    block_registry_hits = ss.state.get("block_registry_hits", {})
-    registry_misses = ss.state.get("registry_misses", [])
-
-    if block_registry_hits or registry_misses:
-        log_event(
-            "info",
-            f"Registry check: {len(block_registry_hits)} hits, {len(registry_misses)} misses",
-            hits=len(block_registry_hits),
-            misses=len(registry_misses),
-        )
-        st.subheader("Block Registry Results")
-        st.markdown(
-            render_registry_results(block_registry_hits, registry_misses),
-            unsafe_allow_html=True,
-        )
-
-    block_sequence = ss.state.get("block_sequence", [])
-    sequence_reasoning = ss.state.get("sequence_reasoning", "")
 
     if block_sequence:
-        st.subheader("Execution Sequence")
-        reasoning_expander = st.expander("Agent 3 Reasoning", expanded=False)
-        with reasoning_expander:
-            st.markdown(sequence_reasoning or "No reasoning provided.")
+        st.markdown(f"**Planned sequence ({len(block_sequence)} blocks):**")
+        st.code(" → ".join(block_sequence), language="text")
 
-        st.markdown("**Block Order:**")
-        for i, block in enumerate(block_sequence, 1):
-            st.markdown(f"{i}. `{block}`")
+    if ps.get("working_df") is not None:
+        _advance(4)
+        return
 
-    if st.button("Execute Pipeline", type="primary"):
-        log_event("info", "Starting pipeline execution")
-        log_event(
-            "info", f"Block sequence: {len(ss.state.get('block_sequence', []))} blocks"
-        )
-        result = run_step("run_pipeline", ss.state)
-        ss.state.update(result)
-        log_event("info", "Pipeline execution completed")
+    with st.status("Running pipeline…", expanded=True) as status:
+        st.write("Executing block sequence…")
+        try:
+            _run_step("run_pipeline")
+            st.write("Saving output…")
+            _run_step("save_output")
+            output_path = st.session_state.pipeline_state.get("output_path", "")
+            status.update(
+                label=f"Pipeline complete — output: `{output_path}`",
+                state="complete",
+                expanded=False,
+            )
+            st.session_state.error = None
+        except Exception as exc:
+            status.update(label=f"Pipeline failed: {exc}", state="error")
+            st.session_state.error = str(exc)
+            st.error(f"Pipeline error: {exc}")
 
-        result2 = run_step("save_output", ss.state)
-        ss.state.update(result2)
-        log_event("info", "Output saved", output=ss.state.get("output_path", ""))
+            with st.expander("Error Logs", expanded=True):
+                err_entries = [
+                    e for e in st.session_state.log_entries
+                    if e.get("level") in ("ERROR", "CRITICAL")
+                ]
+                st.markdown(
+                    render_log_panel(err_entries, tall=True),
+                    unsafe_allow_html=True,
+                )
+            return
 
-        output_path = ss.state.get("output_path", "")
+    _render_log_expander()
+
+    if st.button("▶  View Results", type="primary", use_container_width=True):
+        _advance(4)
+
+
+# ── Step 4: Results ───────────────────────────────────────────────────────
+
+
+def _step_4_results() -> None:
+    ps = st.session_state.pipeline_state
+    working_df = ps.get("working_df")
+    audit_log = ps.get("audit_log", [])
+    enrichment_stats = ps.get("enrichment_stats", {})
+    dq_pre = float(ps.get("dq_score_pre", 0.0))
+    dq_post = float(ps.get("dq_score_post", 0.0))
+    quarantine_reasons = ps.get("quarantine_reasons", [])
+    quarantined_df = ps.get("quarantined_df")
+    block_registry_hits = ps.get("block_registry_hits", {})
+    output_path = ps.get("output_path", "")
+
+    rows = len(working_df) if working_df is not None else 0
+    registry_hits = len(block_registry_hits)
+    dynamic_blocks = len([
+        e for e in audit_log
+        if any(pfx in e.get("block", "") for pfx in ("DYNAMIC_MAPPING", "DERIVE_"))
+    ])
+
+    st.markdown('<div class="section-header">Run Summary</div>', unsafe_allow_html=True)
+    st.markdown(
+        render_summary_cards(rows, 0, registry_hits, dynamic_blocks),
+        unsafe_allow_html=True,
+    )
+
+    st.markdown('<div class="section-header">Data Quality Scores</div>', unsafe_allow_html=True)
+    st.markdown(render_dq_cards(dq_pre, dq_post), unsafe_allow_html=True)
+
+    col_left, col_right = st.columns([3, 2])
+
+    with col_left:
+        with st.expander("Block Execution Waterfall", expanded=True):
+            st.markdown(render_block_waterfall(audit_log), unsafe_allow_html=True)
+
+        with st.expander("Block Metrics — rows in/out per block", expanded=True):
+            st.markdown(render_block_metrics_table(audit_log), unsafe_allow_html=True)
+
+        if enrichment_stats:
+            with st.expander("Enrichment Tier Breakdown", expanded=True):
+                st.markdown(render_enrichment_breakdown(enrichment_stats), unsafe_allow_html=True)
+
+        with st.expander("Quarantine Table", expanded=len(quarantine_reasons) > 0):
+            st.markdown(
+                render_quarantine_table(quarantine_reasons, quarantined_df),
+                unsafe_allow_html=True,
+            )
+
+        if block_registry_hits:
+            with st.expander("Registry Hits", expanded=False):
+                misses = ps.get("registry_misses", [])
+                st.markdown(render_registry_results(block_registry_hits, misses), unsafe_allow_html=True)
+
         if output_path:
-            st.success(f"Pipeline completed. Output saved to: {output_path}")
+            st.success(f"Output saved: `{output_path}`")
 
-            run_record = {
-                "run_num": len(ss.runs) + 1,
-                "source": Path(ss.state.get("source_path", "")).name,
-                "domain": ss.state.get("domain", "nutrition"),
-                "rows": len(ss.state.get("working_df", pd.DataFrame())),
-                "dq_pre": ss.state.get("dq_score_pre", 0),
-                "dq_post": ss.state.get("dq_score_post", 0),
-                "dq_delta": ss.state.get("dq_score_post", 0)
-                - ss.state.get("dq_score_pre", 0),
-                "registry_hits": len(block_registry_hits),
-                "functions_generated": len(registry_misses),
-                "schema_existed": ss.state.get("unified_schema_existed", False),
-            }
-            ss.runs.append(run_record)
+    with col_right:
+        _render_log_panel_with_filters(tall=True)
 
-        ss.max_completed = max(ss.max_completed, 2)
-        ss.step = 3
+    st.divider()
+
+    if st.button("↺  Start New Run", use_container_width=True):
+        for key in list(st.session_state.keys()):
+            del st.session_state[key]
         st.rerun()
 
-    return True
+
+# ── Shared helpers ────────────────────────────────────────────────────────
 
 
-def step_execution() -> bool:
-    """Step 4: Execution progress (already runs in step 3)."""
-    st.header("Execution")
-    log_event("info", "Step 4: Execution - entering")
+def _render_log_expander() -> None:
+    entries = st.session_state.get("log_entries", [])
+    if not entries:
+        return
+    with st.expander(f"Pipeline Logs ({len(entries)} entries)", expanded=False):
+        st.markdown(render_log_panel(entries), unsafe_allow_html=True)
 
-    st.success("Pipeline execution completed!")
 
-    audit_log = ss.state.get("audit_log", [])
-    if audit_log:
-        log_event("info", f"Block waterfall: {len(audit_log)} blocks executed")
-        st.subheader("Block Execution Waterfall")
-        st.markdown(
-            render_block_waterfall(audit_log),
-            unsafe_allow_html=True,
+def _render_log_panel_with_filters(tall: bool = False) -> None:
+    """Filterable log panel with copy-for-LLM block."""
+    entries = st.session_state.get("log_entries", [])
+
+    st.markdown("**Pipeline Logs**")
+    fc1, fc2 = st.columns(2)
+    with fc1:
+        level_filter = st.selectbox(
+            "Level", ["ALL", "INFO", "WARNING", "ERROR"], key="res_level"
+        )
+    with fc2:
+        step_filter = st.selectbox(
+            "Step", ["ALL"] + [str(i) for i in range(5)], key="res_step"
         )
 
     st.markdown(
-        render_hitl_gate(
-            3,
-            "Quarantine Acceptance",
-            ["Accept Quarantine", "Override: Include All"],
+        render_log_panel(entries, level_filter, step_filter, tall=tall),
+        unsafe_allow_html=True,
+    )
+    st.caption(f"{len(entries)} total entries — filtered view above")
+
+    with st.expander("Copy Logs for LLM Debugging", expanded=False):
+        st.caption("One-click copy. Paste into your LLM with your question.")
+        text = _format_logs_as_text(entries, level_filter, step_filter)
+        st.code(text, language="text")
+
+
+def _format_logs_as_text(
+    entries: list[dict],
+    level_filter: str = "ALL",
+    step_filter: str = "ALL",
+) -> str:
+    filtered = entries
+    if level_filter != "ALL":
+        filtered = [e for e in filtered if e.get("level") == level_filter]
+    if step_filter != "ALL":
+        filtered = [e for e in filtered if str(e.get("step", "")) == step_filter]
+    lines = [
+        f"{e.get('time','')} [{e.get('level','')}] {e.get('logger','')}: {e.get('event','')}"
+        for e in filtered
+    ]
+    return "\n".join(lines) if lines else "(no log entries)"
+
+
+# ── Main ──────────────────────────────────────────────────────────────────
+
+
+def main() -> None:
+    st.set_page_config(
+        page_title="ETL Pipeline — HITL Wizard",
+        page_icon="⚙",
+        layout="wide",
+    )
+    st.markdown(GLOBAL_CSS, unsafe_allow_html=True)
+
+    _init_state()
+    _setup_logging()
+
+    st.title("Schema-Driven ETL Pipeline")
+    st.caption(
+        "5-step HITL wizard — pick a CSV, review schema analysis, "
+        "approve transforms, run pipeline, inspect results."
+    )
+
+    st.markdown(
+        render_step_bar(
+            st.session_state.step, STEPS, st.session_state.max_completed
         ),
         unsafe_allow_html=True,
     )
 
-    quarantined_df = ss.state.get("quarantined_df")
-    quarantine_reasons = ss.state.get("quarantine_reasons", [])
-
-    if quarantine_reasons:
-        log_event(
-            "warning",
-            f"{len(quarantine_reasons)} rows quarantined",
-            quarantined=len(quarantine_reasons),
-        )
-        st.warning(f"{len(quarantine_reasons)} rows were quarantined.")
-
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("Accept Quarantine", type="primary"):
-            ss.state["hitl_decision_gate3"] = "accept"
-            ss.max_completed = max(ss.max_completed, 3)
-            ss.step = 4
-            st.rerun()
-    with col2:
-        if st.button("Override: Include All"):
-            ss.state["hitl_decision_gate3"] = "override"
-            df = ss.state.get("working_df", pd.DataFrame())
-            quarantined = ss.state.get("quarantined_df")
-            if quarantined is not None and len(quarantined) > 0:
-                ss.state["working_df"] = pd.concat([df, quarantined], ignore_index=True)
-            ss.max_completed = max(ss.max_completed, 3)
-            ss.step = 4
-            st.rerun()
-
-    return True
-
-
-def step_results() -> bool:
-    """Step 5: Display final results."""
-    st.header("Results")
-    log_event("info", "Step 5: Results - entering")
-
-    dq_pre = ss.state.get("dq_score_pre", 0)
-    dq_post = ss.state.get("dq_score_post", 0)
-
-    log_event(
-        "info",
-        f"DQ Scores - Pre: {dq_pre}%, Post: {dq_post}%",
-        dq_pre=dq_pre,
-        dq_post=dq_post,
-    )
-    st.subheader("Data Quality Scores")
-    st.markdown(
-        render_dq_cards(dq_pre, dq_post),
-        unsafe_allow_html=True,
-    )
-
-    enrichment_stats = ss.state.get("enrichment_stats", {})
-    if enrichment_stats:
-        log_event("info", f"Enrichment stats: {enrichment_stats}")
-        st.subheader("Enrichment Statistics")
-        st.markdown(
-            render_enrichment_breakdown(enrichment_stats),
-            unsafe_allow_html=True,
-        )
-
-    quarantined_df = ss.state.get("quarantined_df")
-    quarantine_reasons = ss.state.get("quarantine_reasons", [])
-
-    if quarantine_reasons:
-        st.subheader("Quarantine Table")
-        st.markdown(
-            render_quarantine_table(
-                quarantine_reasons,
-                quarantined_df if quarantined_df is not None else None,
-            ),
-            unsafe_allow_html=True,
-        )
-
-    output_path = ss.state.get("output_path", "")
-    if output_path:
-        st.subheader("Output")
-        st.success(f"Output saved to: `{output_path}`")
-
-        working_df = ss.state.get("working_df")
-        if working_df is not None and len(working_df) > 0:
-            st.dataframe(working_df.head(50))
-
-    if ss.runs:
-        st.subheader("Run History")
-        st.markdown(render_run_history(ss.runs), unsafe_allow_html=True)
-
-    if st.button("Start New Pipeline"):
-        log_event("info", "Starting new pipeline - resetting state")
-        ss.state.clear()
-        ss.step = 0
-        ss.max_completed = -1
-        ss.pipeline_logs = []
-        st.rerun()
-
-    return True
-
-
-def render_sidebar():
-    """Render sidebar navigation."""
-    st.sidebar.header("Navigation")
-
-    step_names = [
-        "1. Select Source",
-        "2. Schema Analysis",
-        "3. Pipeline Planning",
-        "4. Execution",
-        "5. Results",
-    ]
-
-    for i, name in enumerate(step_names):
-        disabled = i > ss.max_completed + 1
-        if st.sidebar.button(name, disabled=disabled):
-            if i <= ss.max_completed + 1:
-                ss.step = i
-                st.rerun()
-
-    st.sidebar.divider()
-
-    st.sidebar.markdown("**Pipeline Logs**")
-    logs = ss.pipeline_logs[-20:] if len(ss.pipeline_logs) > 20 else ss.pipeline_logs
-    if logs:
-        for log in logs:
-            level = log.get("level", "info")
-            msg = log.get("message", "")
-            ts = log.get("timestamp", "")[11:19]
-            color = {"info": "#0969da", "warning": "#9a6700", "error": "#cf222e"}.get(
-                level, "#57606a"
+    # Sidebar: live log feed
+    with st.sidebar:
+        st.markdown("### Live Logs")
+        entries = st.session_state.get("log_entries", [])
+        if entries:
+            sb_level = st.selectbox(
+                "Level filter", ["ALL", "INFO", "WARNING", "ERROR"], key="sb_level"
             )
-            st.sidebar.markdown(
-                f'<span style="color:{color}">[{ts}] {msg}</span>',
+            recent = entries[-200:]
+            st.markdown(
+                render_log_panel(recent, sb_level),
                 unsafe_allow_html=True,
             )
-    else:
-        st.sidebar.markdown("*No logs yet*")
+            st.caption(f"{len(entries)} total entries")
+        else:
+            st.caption("Logs appear here as pipeline steps run.")
 
+    # Error banner
+    if st.session_state.get("error"):
+        st.error(f"**Last error:** {st.session_state.error}")
 
-def main():
-    """Main application entry point."""
-    st.set_page_config(
-        page_title="ETL Pipeline Wizard",
-        page_icon=":rocket:",
-        layout="wide",
-    )
-
-    st.markdown(GLOBAL_CSS, unsafe_allow_html=True)
-
-    init_session()
-
-    st.title("ETL Pipeline Wizard")
-    st.markdown(
-        "**7-node pipeline** with **3 agents** (Orchestrator → Critic → Sequence Planner)"
-    )
-
-    render_sidebar()
-
-    st.markdown(
-        render_step_bar(ss.step, WIZARD_STEPS, ss.max_completed),
-        unsafe_allow_html=True,
-    )
-
-    step_handlers = [
-        step_select_source,
-        step_schema_analysis,
-        step_critique_and_plan,
-        step_execution,
-        step_results,
-    ]
-
-    if 0 <= ss.step < len(step_handlers):
-        step_handlers[ss.step]()
+    step = st.session_state.step
+    if step == 0:
+        _step_0_source_selection()
+    elif step == 1:
+        _step_1_schema_analysis()
+    elif step == 2:
+        _step_2_code_generation()
+    elif step == 3:
+        _step_3_pipeline_execution()
+    elif step == 4:
+        _step_4_results()
 
 
 if __name__ == "__main__":

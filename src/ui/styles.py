@@ -307,21 +307,25 @@ GLOBAL_CSS = """
         margin: 16px 0;
     }
 
-    /* ── Log panel in sidebar ───────────────────────────── */
+    /* ── Log panel ──────────────────────────────────────── */
     .log-panel {
         background: #1e1e1e;
         border-radius: 8px;
         padding: 12px;
         font-family: 'JetBrains Mono', 'Consolas', monospace;
         font-size: 0.72rem;
-        max-height: 300px;
+        max-height: 450px;
         overflow-y: auto;
     }
-    .log-entry { margin: 2px 0; }
+    .log-panel-tall { max-height: 600px; }
+    .log-entry { margin: 2px 0; line-height: 1.5; }
     .log-time { color: #6a9955; }
+    .log-logger { color: #9cdcfe; font-size: 0.68rem; }
     .log-info { color: #569cd6; }
     .log-warn { color: #dcdcaa; }
     .log-error { color: #f14c4c; }
+    .log-debug { color: #808080; }
+    .log-text { color: #d4d4d4; }
 
     /* ── Beautiful buttons ────────────────────────────────── */
     .stButton > button {

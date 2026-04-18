@@ -681,6 +681,197 @@ def render_extraction_only_flag() -> str:
     return '<span class="badge badge-enrichment">EXTRACTION-ONLY</span>'
 
 
+def render_log_panel(
+    entries: list[dict],
+    level_filter: str = "ALL",
+    step_filter: str = "ALL",
+    tall: bool = False,
+) -> str:
+    """Render structured log entries as a dark terminal-style panel.
+
+    Args:
+        entries: List of {time, level, logger, event, step} dicts.
+        level_filter: "ALL" or a specific level string.
+        step_filter: "ALL" or a step number string.
+        tall: Use .log-panel-tall class for taller max-height.
+    """
+    filtered = entries
+    if level_filter != "ALL":
+        filtered = [e for e in filtered if e.get("level") == level_filter]
+    if step_filter != "ALL":
+        filtered = [e for e in filtered if str(e.get("step", "")) == step_filter]
+
+    level_cls_map = {
+        "INFO": "log-info",
+        "WARNING": "log-warn",
+        "WARN": "log-warn",
+        "ERROR": "log-error",
+        "CRITICAL": "log-error",
+        "DEBUG": "log-debug",
+    }
+
+    lines = []
+    for e in filtered:
+        t = html.escape(str(e.get("time", "")))
+        level = str(e.get("level", "INFO"))
+        logger_name = html.escape(str(e.get("logger", "")))
+        event = html.escape(str(e.get("event", "")))
+        lcls = level_cls_map.get(level, "log-info")
+        lines.append(
+            f'<div class="log-entry">'
+            f'<span class="log-time">{t}</span> '
+            f'<span class="{lcls}">[{html.escape(level)}]</span> '
+            f'<span class="log-logger">{logger_name}</span>'
+            f'<span class="log-text">: {event}</span>'
+            f"</div>"
+        )
+
+    panel_cls = "log-panel log-panel-tall" if tall else "log-panel"
+    content = (
+        "".join(lines)
+        if lines
+        else '<div class="log-entry log-debug">— no entries —</div>'
+    )
+    return f'<div class="{panel_cls}">{content}</div>'
+
+
+def render_operations_review(operations: list[dict]) -> str:
+    """Render LLM-format revised_operations for step 2 HITL review.
+
+    Handles the operations format returned by Agent 1/2, which uses
+    primitive, source_column, target_column keys (not the YAML format).
+    """
+    if not operations:
+        return '<p style="color:#6e7781">No operations to review.</p>'
+
+    primitive_badge_cls = {
+        "RENAME": "badge-map",
+        "CAST": "badge-derivable",
+        "FORMAT": "badge-derivable",
+        "DELETE": "badge-drop",
+        "ADD": "badge-add",
+        "SPLIT": "badge-derive",
+        "UNIFY": "badge-derivable",
+        "DERIVE": "badge-derive",
+        "ENRICH_ALIAS": "badge-alias",
+    }
+    action_badge = {
+        "set_null": '<span class="badge badge-missing">SET NULL</span>',
+        "set_default": '<span class="badge badge-map">SET DEFAULT</span>',
+        "type_cast": '<span class="badge badge-derivable">TYPE CAST</span>',
+        "rename": '<span class="badge badge-map">RENAME</span>',
+        "drop_column": '<span class="badge badge-drop">DROP</span>',
+        "json_array_extract_multi": '<span class="badge badge-derive">JSON SPLIT</span>',
+        "split_column": '<span class="badge badge-derive">SPLIT</span>',
+        "coalesce": '<span class="badge badge-derivable">COALESCE</span>',
+        "concat_columns": '<span class="badge badge-derivable">CONCAT</span>',
+        "value_map": '<span class="badge badge-derivable">VALUE MAP</span>',
+        "parse_date": '<span class="badge badge-derivable">PARSE DATE</span>',
+        "regex_replace": '<span class="badge badge-derivable">REGEX</span>',
+        "regex_extract": '<span class="badge badge-derivable">REGEX</span>',
+        "conditional_map": '<span class="badge badge-derive">COND MAP</span>',
+        "expression": '<span class="badge badge-derive">EXPR</span>',
+        "contains_flag": '<span class="badge badge-derive">FLAG</span>',
+        "extract_json_field": '<span class="badge badge-derive">JSON FIELD</span>',
+    }
+
+    rows = []
+    for op in operations:
+        primitive = str(op.get("primitive", "?"))
+        target = html.escape(str(op.get("target_column", op.get("target", "?"))))
+        source = html.escape(str(op.get("source_column", op.get("source", "—"))))
+        action = str(op.get("action", "?"))
+        target_type = html.escape(str(op.get("target_type", "?")))
+
+        prim_cls = primitive_badge_cls.get(primitive, "badge-map")
+        prim_html = f'<span class="badge {prim_cls}">{html.escape(primitive)}</span>'
+        act_html = action_badge.get(action, f'<span class="badge">{html.escape(action)}</span>')
+
+        rows.append(
+            f"<tr>"
+            f"<td>{prim_html}</td>"
+            f'<td class="col-source">{source}</td>'
+            f'<td style="color:#6e7781">&#8594;</td>'
+            f'<td class="col-unified">{target}</td>'
+            f'<td class="col-type">{target_type}</td>'
+            f"<td>{act_html}</td>"
+            f"</tr>"
+        )
+
+    return (
+        '<table class="schema-table">'
+        "<thead><tr>"
+        "<th>Primitive</th><th>Source</th><th></th><th>Target</th><th>Type</th><th>Action</th>"
+        "</tr></thead>"
+        f"<tbody>{''.join(rows)}</tbody>"
+        "</table>"
+    )
+
+
+def render_critique_notes(notes: list[dict]) -> str:
+    """Render Agent 2 correction notes table."""
+    if not notes:
+        return (
+            '<div style="background:#dafbe1; border:1px solid #4ac26b; border-radius:6px; '
+            'padding:10px 14px; color:#1a7f37; font-size:0.85em;">'
+            "&#10003; No corrections — Agent 1 output accepted as-is."
+            "</div>"
+        )
+    rows = []
+    for note in notes:
+        rule = html.escape(str(note.get("rule", "?")))
+        col = html.escape(str(note.get("column", "?")))
+        correction = html.escape(str(note.get("correction", ""))[:150])
+        rows.append(
+            f"<tr>"
+            f'<td><span class="badge badge-derivable">{rule}</span></td>'
+            f'<td class="col-unified">{col}</td>'
+            f'<td style="color:#57606a; font-size:0.85em;">{correction}</td>'
+            f"</tr>"
+        )
+    return (
+        '<table class="schema-table">'
+        "<thead><tr><th>Rule</th><th>Column</th><th>Correction</th></tr></thead>"
+        f"<tbody>{''.join(rows)}</tbody>"
+        "</table>"
+    )
+
+
+def render_block_metrics_table(audit_log: list[dict]) -> str:
+    """Render per-block row counts with pass/fail status."""
+    if not audit_log:
+        return '<p style="color:#6e7781">No audit log entries.</p>'
+    rows = []
+    for entry in audit_log:
+        block = html.escape(str(entry.get("block", "?")))
+        r_in = entry.get("rows_in", 0)
+        r_out = entry.get("rows_out", 0)
+        delta = r_out - r_in
+        is_loss = r_out < r_in * 0.5 and r_in > 0
+        status_badge = (
+            '<span class="badge badge-fail">&#9888; LOSS</span>'
+            if is_loss
+            else '<span class="badge badge-pass">&#10003;</span>'
+        )
+        delta_str = f"{delta:+,}" if delta != 0 else "0"
+        delta_cls = "val-bad" if delta < 0 else ("val-neutral" if delta == 0 else "val-good")
+        rows.append(
+            f"<tr>"
+            f'<td class="col-unified">{block}</td>'
+            f"<td>{r_in:,}</td>"
+            f"<td>{r_out:,}</td>"
+            f'<td class="{delta_cls}" style="font-family:monospace">{delta_str}</td>'
+            f"<td>{status_badge}</td>"
+            f"</tr>"
+        )
+    return (
+        '<table class="schema-table">'
+        "<thead><tr><th>Block</th><th>Rows In</th><th>Rows Out</th><th>Delta</th><th>Status</th></tr></thead>"
+        f"<tbody>{''.join(rows)}</tbody>"
+        "</table>"
+    )
+
+
 def render_hitl_gate(gate_num: int, gate_type: str, options: list[str]) -> str:
     """
     Render a HITL approval gate.

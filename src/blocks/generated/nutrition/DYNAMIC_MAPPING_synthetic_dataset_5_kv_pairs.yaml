@@ -1,6 +1,4 @@
 column_operations:
-- source: entity_id
-  action: drop_column
 - source: field_1_name
   action: drop_column
 - source: field_2_name
@@ -13,5 +11,9 @@ column_operations:
   action: drop_column
 - target: data_source
   type: string
+  action: format_transform
+  source: entity_id
+- target: data_source
+  type: string
   action: set_default
-  default_value: USDA
+  default_value: UNKNOWN
