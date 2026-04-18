@@ -1,90 +1,174 @@
-# Schema-Driven ETL Pipeline Constitution
-
 <!--
 Sync Impact Report:
-- Version: 1.2.0 → 1.2.1 (PATCH)
-- Changes: Renamed "Agent 1.5" to "Agent 2" throughout
-- Principles modified: I (Agent 1.5 → Agent 2), II (Agent 1.5 → Agent 2)
-- Pipeline flow modified: Node 3 renamed "Agent 1.5" → "Agent 2"
-- Templates: No constitution-specific references to update
+- Version: 1.2.1 -> 1.3.0
+- Modified principles:
+  - I. Schema-First Gap Analysis -> I. Schema-First Gap Analysis
+  - II. Two-Agent Architecture with Critic Validation -> II. Three-Agent Pipeline with Critic Review
+  - III. Declarative YAML-Driven Transformations -> III. Declarative YAML Execution Only
+  - IV. Human-in-the-Loop (HITL) Approval -> IV. Human Approval Gates
+  - V. Cascading Enrichment Strategy -> V. Cascading Enrichment with Safety Boundaries
+  - VI. Self-Extending Pipeline Memory -> VI. Self-Extending Mapping Memory
+  - VII. Data Quality Scoring -> VII. Data Quality and Quarantine Enforcement
+- Added sections: None
+- Removed sections: None
+- Templates requiring updates:
+  - ✅ updated `.specify/templates/plan-template.md`
+  - ✅ updated `.specify/templates/spec-template.md`
+  - ✅ updated `.specify/templates/tasks-template.md`
+  - ✅ updated `README.md`
+  - ✅ no command templates present under `.specify/templates/commands/`
+- Follow-up TODOs: None
 -->
+# Schema-Driven ETL Pipeline Constitution
 
 ## Core Principles
 
 ### I. Schema-First Gap Analysis
-Every incoming data source MUST be analyzed against the unified output schema defined in `config/unified_schema.json`. The system MUST detect and classify all schema gaps using the 8-primitive taxonomy: RENAME, CAST, FORMAT, DELETE, ADD, SPLIT, UNIFY, DERIVE. Gap classification MUST be performed by the DeepSeek LLM (Agent 1) with validation by a reasoning model (Agent 2).
+Every ingestion flow MUST analyze the incoming dataset against
+`config/unified_schema.json` before transformation planning begins. Schema gaps
+MUST be classified with the 8-primitive taxonomy: `RENAME`, `CAST`, `FORMAT`,
+`DELETE`, `ADD`, `SPLIT`, `UNIFY`, and `DERIVE`. Agent 1 MUST produce the
+initial operations list, and Agent 2 MUST review that list before YAML mapping
+registration proceeds.
 
-### II. Two-Agent Architecture with Critic Validation
-The pipeline uses a two-agent-plus-critic architecture (not three agents):
-- **Agent 1 (Orchestrator)**: Schema analysis and gap detection via LLM
-- **Agent 2 (Critic)**: Validates and corrects Agent 1's operations using a reasoning model
-- **Agent 3 (Sequence Planner)**: Determines optimal block execution order via LLM
+Rationale: the unified schema is the contract for all downstream blocks, data
+quality scoring, and output validation.
 
-There is NO Agent 2 for code generation — all gaps are resolved declaratively via YAML, not LLM-generated Python.
+### II. Three-Agent Pipeline with Critic Review
+The pipeline architecture MUST remain a three-agent flow with distinct
+responsibilities:
+- **Agent 1 (Orchestrator)**: analyze source schema and propose gap operations
+- **Agent 2 (Critic)**: audit and correct Agent 1 output with a reasoning model
+- **Agent 3 (Sequence Planner)**: choose block order from the available pool
 
-### III. Declarative YAML-Driven Transformations
-All schema transformations MUST be expressed declaratively in YAML mapping files. The DynamicMappingBlock executes these operations deterministically without LLM code generation. This eliminates the need for sandbox execution and provides full auditability. YAML operations cover: set_null, set_default, type_cast, rename, drop_column, format_transform, value_map, regex operations, split operations (json_array_extract_multi, split_column, xml_extract), unify operations (coalesce, concat_columns, string_template), and derive operations (extract_json_field, conditional_map, expression, contains_flag).
+No agent may generate executable transformation code at runtime. Agent 3 MAY
+reorder blocks, but it MUST NOT add or remove blocks from the available pool.
 
-### IV. Human-in-the-Loop (HITL) Approval
-The Streamlit UI MUST expose approval gates at critical decision points:
-- **Gate 1**: Schema mapping approval — user reviews column mapping, derivable gaps, missing columns, and can exclude columns from required schema
-- **Gate 2**: No explicit code review gate (no Agent 2 exists)
-- **Gate 3**: Quarantine acceptance — user can accept quarantine or override to include all rows
+Rationale: explicit role boundaries keep LLM behavior auditable and prevent
+architecture drift back to code generation.
 
-All HITL decisions MUST be merged into YAML before pipeline execution.
+### III. Declarative YAML Execution Only
+Schema transformations MUST execute through declarative YAML mappings consumed by
+`DynamicMappingBlock`. All supported primitives MUST compile to a known YAML
+operation or to an explicit null/default fallback before the pipeline runs.
+Runtime-generated Python transformation blocks are prohibited.
 
-### V. Cascading Enrichment Strategy
-Enrichment of missing columns proceeds through three strategies in order of increasing cost:
-1. **S1 (Deterministic)**: Regex/keyword extraction — handles primary_category, allergens, dietary_tags, is_organic
-2. **S2 (KNN Corpus)**: FAISS-based product-to-product similarity search — primary_category only
-3. **S3 (RAG-LLM)**: Retrieval-augmented LLM with corpus examples — primary_category only
+Generated mapping files MUST be written under
+`src/blocks/generated/<domain>/DYNAMIC_MAPPING_<dataset>.yaml` and MUST be
+treated as the source of truth for dataset-specific transformations.
 
-**Safety constraint**: allergens, is_organic, and dietary_tags are extraction-only fields. S2 and S3 MUST NOT modify them — they are populated only by S1 extraction from source text.
+Rationale: YAML-only execution provides deterministic behavior, reviewable
+artifacts, and replay without sandbox risk.
 
-### VI. Self-Extending Pipeline Memory
-Generated YAML mapping files MUST be persisted to `src/blocks/generated/<domain>/`. On subsequent runs with the same source, the BlockRegistry MUST auto-discover existing mappings and skip LLM analysis — achieving zero LLM cost for replayed sources.
+### IV. Human Approval Gates
+Human review MUST exist at the decision points that can materially change output
+correctness:
+- **Gate 1**: schema mapping review, including missing-column handling and
+  schema exclusions
+- **Gate 2**: quarantine review for rows that still fail required-field checks
 
-### VII. Data Quality Scoring
-Data quality scores MUST be computed at two points: before enrichment (dq_score_pre) and after (dq_score_post). The formula is: DQ Score = (Completeness × 0.4) + (Freshness × 0.35) + (Ingredient Richness × 0.25). Rows failing required column validation after enrichment MUST be quarantined with user override capability.
+There is no code-review gate for generated transforms because runtime code
+generation is not allowed. Human decisions MUST be merged into the mapping state
+before execution.
+
+Rationale: these are the two points where operator intent changes the meaning of
+the final dataset.
+
+### V. Cascading Enrichment with Safety Boundaries
+Enrichment MUST proceed in cost order:
+1. `S1` deterministic extraction
+2. `S2` KNN corpus search
+3. `S3` RAG-assisted LLM categorization
+
+`primary_category` MAY be resolved by `S1`, `S2`, or `S3`. `allergens`,
+`dietary_tags`, and `is_organic` are safety fields and MUST remain
+deterministic-only. They MUST NOT be inferred or modified by `S2` or `S3`.
+
+Rationale: category tolerates probabilistic inference; safety fields do not.
+
+### VI. Self-Extending Mapping Memory
+When a dataset-specific mapping is generated, it MUST be persisted and
+auto-discoverable on future runs. Re-ingesting a known source SHOULD reuse the
+existing mapping artifact and avoid repeating schema-analysis work unless the
+schema contract has changed.
+
+Rationale: replayability and cost control are core behavior, not an optimization
+detail.
+
+### VII. Data Quality and Quarantine Enforcement
+The pipeline MUST compute `dq_score_pre` before enrichment and `dq_score_post`
+after pipeline execution. Rows that still fail required-field validation after
+enrichment and alias application MUST be quarantined, and quarantine reasons
+MUST be recorded in machine-readable form.
+
+Output files written to `output/` MUST contain only rows that passed required
+field validation unless a human explicitly overrides quarantine handling.
+
+Rationale: output acceptance must be measurable and traceable.
 
 ## Technology Stack
 
-- **UI Framework**: Streamlit — 5-step wizard interface
-- **Orchestration**: LangGraph — StateGraph with 7 nodes
-- **LLM Provider**: DeepSeek (deepseek-chat, deepseek-reasoner) via LiteLLM
-- **Data Processing**: pandas — DataFrame manipulation
-- **Vector Store**: FAISS — KNN-based product similarity for S2 enrichment
-- **Fuzzy Matching**: rapidfuzz — deduplication clustering
-- **Block Discovery**: importlib — dynamic block loading from src/blocks/generated/
+- **Language**: Python 3.11
+- **Data Processing**: pandas
+- **LLM Access**: LiteLLM
+- **Primary Models**: DeepSeek chat model for Agent 1 and Agent 3; reasoning
+  model for Agent 2 when available
+- **Workflow Engine**: LangGraph
+- **UI**: Streamlit
+- **Similarity Search**: FAISS
+
+The constitution governs behavior, not vendor lock-in. Equivalent replacements
+are allowed only if they preserve the agent responsibilities and constraints in
+the Core Principles.
 
 ## Development Workflow
 
-### Pipeline Execution Flow (7 nodes)
-1. **load_source**: Load CSV, profile schema (dtype, null_rate, unique_count, sample_values, detected_structure)
-2. **analyze_schema**: Agent 1 LLM call for gap detection using 8-primitive taxonomy
-3. **critique_schema**: Agent 2 validates/corrects Agent 1's operations
-4. **check_registry**: Build YAML mapping, merge HITL decisions, register DynamicMappingBlock
-5. **plan_sequence**: Agent 3 determines block execution order
-6. **run_pipeline**: Sequential block execution with audit logging
-7. **save_output**: Write final DataFrame to output/
+The default non-interactive graph MUST preserve this seven-node order:
+1. `load_source`
+2. `analyze_schema`
+3. `critique_schema`
+4. `check_registry`
+5. `plan_sequence`
+6. `run_pipeline`
+7. `save_output`
 
-### Block Execution Order
-The default sequence is: dq_score_pre → __generated__ (DynamicMappingBlock) → strip_whitespace → lowercase_brand → remove_noise_words → strip_punctuation → extract_quantity_column → dedup_stage (fuzzy_deduplicate, column_wise_merge, golden_record_select) → enrich_stage (extract_allergens, llm_enrich) → dq_score_post
+The interactive Streamlit flow MUST expose the approval gates before execution
+commits operator decisions to the YAML mapping or accepts quarantined results.
 
-### Quality Gates
-- All schema operations converted to YAML (no runtime code generation)
-- DQ scores computed pre/post with delta tracking
-- Quarantine logic applied to rows with null required columns
-- Enrichment stats logged for strategy breakdown (S1/S2/S3 counts)
+Quality gates for any feature or refactor:
+- unified-schema alignment is documented
+- YAML mapping behavior is explicit and testable
+- enrichment safety fields remain deterministic-only
+- replayed mappings under `src/blocks/generated/` still load correctly
+- quarantine behavior and DQ scoring remain intact
+- README, templates, and agent guidance stay consistent with the architecture
 
 ## Governance
 
-This constitution supersedes all other practices. Amendments require:
-- Documentation of the principle change or addition
-- Clear rationale for the modification
-- Update to constitution version following semantic versioning:
-  - MAJOR: Backward incompatible governance/principle removals or redefinitions
-  - MINOR: New principle/section added or materially expanded guidance
-  - PATCH: Clarifications, wording, typo fixes
+This constitution supersedes conflicting local conventions and feature plans.
+Every implementation plan, specification, task list, and runtime guidance
+document MUST pass a constitution review before work is considered ready.
 
-**Version**: 1.2.1 | **Ratified**: 2026-04-17 | **Last Amended**: 2026-04-17
+Amendments require:
+- a written description of the rule change
+- rationale for the change
+- propagation to affected templates and guidance documents
+- a semantic version update for this constitution
+
+Versioning policy:
+- **MAJOR**: removes a principle, redefines architecture boundaries, or changes a
+  non-negotiable rule in a backward-incompatible way
+- **MINOR**: adds a principle, adds a mandatory governance section, or materially
+  expands implementation obligations
+- **PATCH**: clarifies wording without changing required behavior
+
+Compliance review expectations:
+- plans MUST state how the work satisfies the constitution gates
+- specs MUST capture schema, HITL, enrichment, and quarantine implications when
+  relevant
+- tasks MUST include the work needed to preserve YAML mappings, DQ logic, and
+  documentation consistency
+- runtime guidance MUST not describe deprecated architecture such as runtime
+  code generation
+
+**Version**: 1.3.0 | **Ratified**: 2026-04-17 | **Last Amended**: 2026-04-18

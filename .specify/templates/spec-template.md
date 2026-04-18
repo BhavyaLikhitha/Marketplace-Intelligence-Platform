@@ -95,6 +95,14 @@
 - **FR-006**: System MUST authenticate users via [NEEDS CLARIFICATION: auth method not specified - email/password, SSO, OAuth?]
 - **FR-007**: System MUST retain user data for [NEEDS CLARIFICATION: retention period not specified]
 
+### Pipeline Governance Constraints *(mandatory when applicable)*
+
+- Describe any impact on `config/unified_schema.json` or downstream required columns.
+- State whether the feature introduces or changes YAML mapping behavior.
+- Identify any HITL review point, quarantine behavior, or operator override affected.
+- If enrichment changes are involved, state whether they affect `primary_category`
+  only or also safety fields; safety fields cannot move to probabilistic inference.
+
 ### Key Entities *(include if feature involves data)*
 
 - **[Entity 1]**: [What it represents, key attributes without implementation]

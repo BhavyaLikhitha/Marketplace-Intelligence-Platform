@@ -31,7 +31,12 @@
 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
-[Gates determined based on constitution file]
+- Unified-schema impact is identified and aligned with `config/unified_schema.json`
+- Agent responsibilities remain within the current three-agent architecture
+- Planned transformations use declarative YAML or existing blocks, not runtime-generated Python
+- HITL approval points and quarantine behavior are identified when the feature affects them
+- Enrichment changes preserve deterministic-only handling for safety fields
+- DQ scoring, generated mapping persistence, and documentation/runtime guidance updates are covered
 
 ## Project Structure
 
