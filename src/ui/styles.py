@@ -276,5 +276,87 @@ GLOBAL_CSS = """
         color: #57606a;
         font-size: 0.82rem;
     }
+
+    /* ── Agent header ─────────────────────────────────────── */
+    .agent-header {
+        background: linear-gradient(135deg, #f6f8fa, #eaeef2);
+        border-left: 4px solid #0969da;
+        padding: 14px 18px;
+        margin: 16px 0;
+        border-radius: 0 8px 8px 0;
+    }
+    .agent-header-1 { border-left-color: #0969da; }
+    .agent-header-2 { border-left-color: #8250df; }
+    .agent-header-3 { border-left-color: #1a7f37; }
+
+    /* ── Sampling stats ───────────────────────────────────── */
+    .sampling-stats {
+        background: #f6f8fa;
+        border: 1px solid #d0d7de;
+        border-radius: 8px;
+        padding: 14px;
+        margin: 12px 0;
+    }
+
+    /* ── HITL Gate ───────────────────────────────────────── */
+    .hitl-gate {
+        border: 2px dashed #f0883e;
+        background: linear-gradient(180deg, #fff8c5, #fff1c2);
+        padding: 18px;
+        border-radius: 10px;
+        margin: 16px 0;
+    }
+
+    /* ── Log panel in sidebar ───────────────────────────── */
+    .log-panel {
+        background: #1e1e1e;
+        border-radius: 8px;
+        padding: 12px;
+        font-family: 'JetBrains Mono', 'Consolas', monospace;
+        font-size: 0.72rem;
+        max-height: 300px;
+        overflow-y: auto;
+    }
+    .log-entry { margin: 2px 0; }
+    .log-time { color: #6a9955; }
+    .log-info { color: #569cd6; }
+    .log-warn { color: #dcdcaa; }
+    .log-error { color: #f14c4c; }
+
+    /* ── Beautiful buttons ────────────────────────────────── */
+    .stButton > button {
+        border-radius: 6px;
+        font-weight: 500;
+        transition: all 0.2s ease;
+    }
+    .stButton > button:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+
+    /* ── Enhanced step bar ───────────────────────────────── */
+    .step-bar {
+        background: linear-gradient(180deg, #fafbfc, #f3f4f6);
+        padding: 8px;
+        border-radius: 12px;
+    }
+
+    /* ── Card enhancements ─────────────────────────────────── */
+    .metric-card {
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    .metric-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 20px rgba(0,0,0,0.1);
+    }
+
+    /* ── Animated success ─────────────────────────────────── */
+    @keyframes slideIn {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    .animate-in {
+        animation: slideIn 0.3s ease-out;
+    }
 </style>
 """

@@ -5,7 +5,9 @@ from __future__ import annotations
 import html
 
 
-def render_step_bar(current_step: int, steps: list[str], max_completed: int = -1) -> str:
+def render_step_bar(
+    current_step: int, steps: list[str], max_completed: int = -1
+) -> str:
     """
     Render the step indicator bar at the top of the page.
 
@@ -34,7 +36,7 @@ def render_step_bar(current_step: int, steps: list[str], max_completed: int = -1
         items.append(
             f'<div class="step-item {cls}" {data_attr}>'
             f'<span class="step-num">{check}</span>{label}'
-            f'</div>'
+            f"</div>"
         )
     return f'<div class="step-bar">{"".join(items)}</div>'
 
@@ -44,22 +46,26 @@ def render_source_profile(profile: dict) -> str:
     rows = []
     for col, info in profile.items():
         null_rate = info.get("null_rate", 0)
-        null_cls = "null-low" if null_rate < 0.1 else ("null-mid" if null_rate < 0.4 else "null-high")
+        null_cls = (
+            "null-low"
+            if null_rate < 0.1
+            else ("null-mid" if null_rate < 0.4 else "null-high")
+        )
         samples = ", ".join(str(s)[:50] for s in info.get("sample_values", [])[:3])
         rows.append(
-            f'<tr>'
+            f"<tr>"
             f'<td class="col-name">{html.escape(col)}</td>'
             f'<td class="col-type">{html.escape(str(info.get("dtype", "")))}</td>'
             f'<td class="{null_cls} col-null">{null_rate:.1%}</td>'
-            f'<td>{info.get("unique_count", "")}</td>'
+            f"<td>{info.get('unique_count', '')}</td>"
             f'<td class="sample">{html.escape(samples)}</td>'
-            f'</tr>'
+            f"</tr>"
         )
     return (
         '<table class="profile-table">'
-        '<thead><tr><th>Column</th><th>Type</th><th>Null Rate</th><th>Unique</th><th>Samples</th></tr></thead>'
-        f'<tbody>{"".join(rows)}</tbody>'
-        '</table>'
+        "<thead><tr><th>Column</th><th>Type</th><th>Null Rate</th><th>Unique</th><th>Samples</th></tr></thead>"
+        f"<tbody>{''.join(rows)}</tbody>"
+        "</table>"
     )
 
 
@@ -86,7 +92,11 @@ def render_schema_delta(
     for src_col, uni_col in column_mapping.items():
         src_info = source_profile.get(src_col, {})
         null_rate = src_info.get("null_rate", 0)
-        null_cls = "null-low" if null_rate < 0.1 else ("null-mid" if null_rate < 0.4 else "null-high")
+        null_cls = (
+            "null-low"
+            if null_rate < 0.1
+            else ("null-mid" if null_rate < 0.4 else "null-high")
+        )
         src_type = src_info.get("dtype", "?")
         uni_type = ""
         if unified_schema:
@@ -94,15 +104,15 @@ def render_schema_delta(
             uni_type = uni_spec.get("type", "")
 
         rows.append(
-            f'<tr>'
+            f"<tr>"
             f'<td class="col-source">{html.escape(src_col)}</td>'
-            f'<td>&#8594;</td>'
+            f"<td>&#8594;</td>"
             f'<td class="col-unified">{html.escape(uni_col)}</td>'
             f'<td><span class="badge badge-map">MAP</span></td>'
             f'<td class="col-type">{html.escape(str(src_type))}</td>'
             f'<td class="col-type">{html.escape(str(uni_type))}</td>'
             f'<td class="{null_cls} col-null">{null_rate:.1%}</td>'
-            f'</tr>'
+            f"</tr>"
         )
 
     # Use new classification if available, otherwise fall back to legacy gaps
@@ -116,15 +126,15 @@ def render_schema_delta(
             target_type = gap.get("target_type", "")
 
             rows.append(
-                f'<tr>'
+                f"<tr>"
                 f'<td class="col-source">{html.escape(str(src_col))}</td>'
-                f'<td>&#8594;</td>'
+                f"<td>&#8594;</td>"
                 f'<td class="col-unified">{html.escape(target_col)}</td>'
                 f'<td><span class="badge {badge_cls}">{html.escape(action)}</span></td>'
                 f'<td class="col-type">{html.escape(str(src_type))}</td>'
                 f'<td class="col-type">{html.escape(str(target_type))}</td>'
-                f'<td>—</td>'
-                f'</tr>'
+                f"<td>—</td>"
+                f"</tr>"
             )
     if missing_columns is not None:
         # Build set of columns covered by enrichment or alias — don't show as MISSING
@@ -140,15 +150,15 @@ def render_schema_delta(
             reason = mc.get("reason", "")
 
             rows.append(
-                f'<tr>'
+                f"<tr>"
                 f'<td class="col-source" style="color:#cf222e;">—</td>'
-                f'<td>&#8594;</td>'
+                f"<td>&#8594;</td>"
                 f'<td class="col-unified">{html.escape(target_col)}</td>'
                 f'<td><span class="badge badge-missing">MISSING</span></td>'
                 f'<td class="col-type">—</td>'
                 f'<td class="col-type">{html.escape(str(target_type))}</td>'
                 f'<td title="{html.escape(reason)}" style="color:#cf222e;">unavailable</td>'
-                f'</tr>'
+                f"</tr>"
             )
     elif not derivable_gaps:
         # Legacy fallback: use flat gaps list
@@ -161,15 +171,15 @@ def render_schema_delta(
             target_type = gap.get("target_type", "")
 
             rows.append(
-                f'<tr>'
+                f"<tr>"
                 f'<td class="col-source">{html.escape(str(src_col))}</td>'
-                f'<td>&#8594;</td>'
+                f"<td>&#8594;</td>"
                 f'<td class="col-unified">{html.escape(target_col)}</td>'
                 f'<td><span class="badge {badge_cls}">{html.escape(action)}</span></td>'
                 f'<td class="col-type">{html.escape(str(src_type))}</td>'
                 f'<td class="col-type">{html.escape(str(target_type))}</td>'
-                f'<td>—</td>'
-                f'</tr>'
+                f"<td>—</td>"
+                f"</tr>"
             )
 
     # Enrichment columns (generated by pipeline blocks)
@@ -180,15 +190,15 @@ def render_schema_delta(
                 uni_spec = unified_schema.get("columns", {}).get(col_name, {})
                 uni_type = uni_spec.get("type", "")
             rows.append(
-                f'<tr>'
+                f"<tr>"
                 f'<td class="col-source" style="color:#1a7f37;">—</td>'
-                f'<td>&#8594;</td>'
+                f"<td>&#8594;</td>"
                 f'<td class="col-unified">{html.escape(col_name)}</td>'
                 f'<td><span class="badge badge-enrichment">ENRICHMENT</span></td>'
                 f'<td class="col-type">—</td>'
                 f'<td class="col-type">{html.escape(str(uni_type))}</td>'
                 f'<td style="color:#1a7f37;">auto-generated</td>'
-                f'</tr>'
+                f"</tr>"
             )
 
     # Enrich alias columns (required cols fulfilled by an enrichment col post-pipeline)
@@ -201,26 +211,26 @@ def render_schema_delta(
                 uni_spec = unified_schema.get("columns", {}).get(tgt, {})
                 uni_type = uni_spec.get("type", "")
             rows.append(
-                f'<tr>'
+                f"<tr>"
                 f'<td class="col-source" style="color:#6e40c9;">—</td>'
-                f'<td>&#8594;</td>'
+                f"<td>&#8594;</td>"
                 f'<td class="col-unified">{html.escape(tgt)}</td>'
                 f'<td><span class="badge badge-alias">ALIAS</span></td>'
                 f'<td class="col-type">—</td>'
                 f'<td class="col-type">{html.escape(str(uni_type))}</td>'
                 f'<td style="color:#6e40c9;" title="Filled from enrichment column \'{html.escape(src)}\' after pipeline runs">'
-                f'&#8592; {html.escape(src)}</td>'
-                f'</tr>'
+                f"&#8592; {html.escape(src)}</td>"
+                f"</tr>"
             )
 
     return (
         '<table class="schema-table">'
-        '<thead><tr>'
-        '<th>Source Column</th><th></th><th>Unified Column</th>'
-        '<th>Action</th><th>Source Type</th><th>Target Type</th><th>Null Rate</th>'
-        '</tr></thead>'
-        f'<tbody>{"".join(rows)}</tbody>'
-        '</table>'
+        "<thead><tr>"
+        "<th>Source Column</th><th></th><th>Unified Column</th>"
+        "<th>Action</th><th>Source Type</th><th>Target Type</th><th>Null Rate</th>"
+        "</tr></thead>"
+        f"<tbody>{''.join(rows)}</tbody>"
+        "</table>"
     )
 
 
@@ -235,19 +245,19 @@ def render_missing_columns(missing_columns: list[dict]) -> str:
         target_type = mc.get("target_type", "?")
         reason = mc.get("reason", "No source data available")
         rows.append(
-            f'<tr>'
+            f"<tr>"
             f'<td class="col-unified">{html.escape(target)}</td>'
             f'<td class="col-type">{html.escape(target_type)}</td>'
             f'<td><span class="badge badge-missing">UNAVAILABLE</span></td>'
             f'<td style="color:#57606a; font-size:0.85em;">{html.escape(reason)}</td>'
-            f'</tr>'
+            f"</tr>"
         )
 
     return (
         '<table class="schema-table">'
-        '<thead><tr><th>Column</th><th>Type</th><th>Status</th><th>Reason</th></tr></thead>'
-        f'<tbody>{"".join(rows)}</tbody>'
-        '</table>'
+        "<thead><tr><th>Column</th><th>Type</th><th>Status</th><th>Reason</th></tr></thead>"
+        f"<tbody>{''.join(rows)}</tbody>"
+        "</table>"
     )
 
 
@@ -281,19 +291,19 @@ def render_yaml_review(operations: list[dict]) -> str:
         detail = html.escape(reason) if reason else html.escape(str(source))
 
         rows.append(
-            f'<tr>'
+            f"<tr>"
             f'<td class="col-unified">{html.escape(target)}</td>'
             f'<td class="col-type">{html.escape(col_type)}</td>'
-            f'<td>{badge}</td>'
+            f"<td>{badge}</td>"
             f'<td style="color:#57606a; font-size:0.85em;">{detail}</td>'
-            f'</tr>'
+            f"</tr>"
         )
 
     return (
         '<table class="schema-table">'
-        '<thead><tr><th>Target Column</th><th>Type</th><th>Action</th><th>Detail</th></tr></thead>'
-        f'<tbody>{"".join(rows)}</tbody>'
-        '</table>'
+        "<thead><tr><th>Target Column</th><th>Type</th><th>Action</th><th>Detail</th></tr></thead>"
+        f"<tbody>{''.join(rows)}</tbody>"
+        "</table>"
     )
 
 
@@ -315,9 +325,9 @@ def render_registry_results(hits: dict, misses: list[dict]) -> str:
         )
     return (
         '<table class="schema-table">'
-        '<thead><tr><th>Gap / Key</th><th>Status</th><th>Action</th></tr></thead>'
-        f'<tbody>{"".join(rows)}</tbody>'
-        '</table>'
+        "<thead><tr><th>Gap / Key</th><th>Status</th><th>Action</th></tr></thead>"
+        f"<tbody>{''.join(rows)}</tbody>"
+        "</table>"
     )
 
 
@@ -326,7 +336,11 @@ def render_code_review(func: dict) -> str:
     fn_name = func.get("block_name", "?")
     code = html.escape(func.get("block_code", ""))
     passed = func.get("validation_passed", False)
-    badge = '<span class="badge badge-pass">PASSED</span>' if passed else '<span class="badge badge-fail">FAILED</span>'
+    badge = (
+        '<span class="badge badge-pass">PASSED</span>'
+        if passed
+        else '<span class="badge badge-fail">FAILED</span>'
+    )
     sample_outputs = func.get("sample_outputs", {})
 
     # Sample I/O table
@@ -340,21 +354,21 @@ def render_code_review(func: dict) -> str:
     if io_rows:
         io_table = (
             '<table class="io-table">'
-            '<thead><tr><th>Input</th><th>Output</th></tr></thead>'
-            f'<tbody>{"".join(io_rows)}</tbody>'
-            '</table>'
+            "<thead><tr><th>Input</th><th>Output</th></tr></thead>"
+            f"<tbody>{''.join(io_rows)}</tbody>"
+            "</table>"
         )
 
     return (
         f'<div class="code-review">'
         f'<div class="code-review-header">'
         f'<span class="fn-name">{html.escape(fn_name)}</span>'
-        f'{badge}'
-        f'</div>'
-        f'<pre>{code}</pre>'
+        f"{badge}"
+        f"</div>"
+        f"<pre>{code}</pre>"
         f'<div class="validation-bar">Sample I/O</div>'
-        f'{io_table}'
-        f'</div>'
+        f"{io_table}"
+        f"</div>"
     )
 
 
@@ -370,40 +384,42 @@ def render_dq_cards(dq_pre: float, dq_post: float) -> str:
         f'<div class="metric-label">DQ Score (Pre)</div>'
         f'<div class="metric-value val-neutral">{dq_pre:.1f}%</div>'
         f'<div class="metric-sub">Before enrichment</div>'
-        f'</div>'
+        f"</div>"
         f'<div class="metric-card">'
         f'<div class="metric-label">DQ Score (Post)</div>'
         f'<div class="metric-value val-good">{dq_post:.1f}%</div>'
         f'<div class="metric-sub">After enrichment</div>'
-        f'</div>'
+        f"</div>"
         f'<div class="metric-card">'
         f'<div class="metric-label">DQ Delta</div>'
         f'<div class="metric-value {delta_cls}">{delta_sign}{delta:.1f}%</div>'
         f'<div class="metric-sub">Enrichment contribution</div>'
-        f'</div>'
-        f'</div>'
+        f"</div>"
+        f"</div>"
     )
 
 
-def render_summary_cards(rows: int, clusters: int, registry_hits: int, functions_generated: int) -> str:
+def render_summary_cards(
+    rows: int, clusters: int, registry_hits: int, functions_generated: int
+) -> str:
     """Render summary metric cards."""
     return (
         f'<div class="metric-row">'
         f'<div class="metric-card">'
         f'<div class="metric-label">Output Rows</div>'
         f'<div class="metric-value val-neutral">{rows}</div>'
-        f'</div>'
+        f"</div>"
         f'<div class="metric-card">'
         f'<div class="metric-label">Registry Hits</div>'
         f'<div class="metric-value val-good">{registry_hits}</div>'
         f'<div class="metric-sub">Reused transforms</div>'
-        f'</div>'
+        f"</div>"
         f'<div class="metric-card">'
         f'<div class="metric-label">Generated</div>'
         f'<div class="metric-value val-warn">{functions_generated}</div>'
         f'<div class="metric-sub">New transforms</div>'
-        f'</div>'
-        f'</div>'
+        f"</div>"
+        f"</div>"
     )
 
 
@@ -428,8 +444,8 @@ def render_block_waterfall(audit_log: list[dict]) -> str:
             f'<div class="waterfall-bar-wrap">'
             f'<div class="waterfall-bar {bar_cls}" style="width:{pct:.0f}%"></div>'
             f'<div class="waterfall-count">{r_in} &#8594; {r_out}</div>'
-            f'</div>'
-            f'</div>'
+            f"</div>"
+            f"</div>"
         )
 
     return f'<div class="waterfall">{"".join(bars)}</div>'
@@ -457,8 +473,8 @@ def render_enrichment_breakdown(stats: dict) -> str:
             f'<div class="enrich-bar-wrap">'
             f'<div class="enrich-bar {cls}" style="width:{max(pct, 2):.0f}%"></div>'
             f'<div class="enrich-count">{count} ({pct:.0f}%)</div>'
-            f'</div>'
-            f'</div>'
+            f"</div>"
+            f"</div>"
         )
 
     unresolved = stats.get("unresolved", 0)
@@ -468,8 +484,8 @@ def render_enrichment_breakdown(stats: dict) -> str:
             f'<div class="enrich-tier" style="color:#f85149">Unresolved</div>'
             f'<div class="enrich-bar-wrap">'
             f'<div class="enrich-count" style="color:#f85149">{unresolved} rows</div>'
-            f'</div>'
-            f'</div>'
+            f"</div>"
+            f"</div>"
         )
 
     return f'<div class="enrich-breakdown">{"".join(bars)}</div>'
@@ -477,16 +493,16 @@ def render_enrichment_breakdown(stats: dict) -> str:
 
 def render_pipeline_remembered(hits: dict) -> str:
     """Render a 'Pipeline Remembered' banner when all gaps are registry hits."""
-    rows = "".join(f'<li><code>{html.escape(k)}</code></li>' for k in hits)
+    rows = "".join(f"<li><code>{html.escape(k)}</code></li>" for k in hits)
     count = len(hits)
     return (
         '<div class="remembered-banner">'
         f'<div class="remembered-title">&#9679; Pipeline Remembered ({count} function{"s" if count != 1 else ""})</div>'
         '<ul class="remembered-list">'
-        f'{rows}'
-        '</ul>'
+        f"{rows}"
+        "</ul>"
         '<div class="remembered-sub">All schema gaps covered by the function registry — Agent 2 was not called.</div>'
-        '</div>'
+        "</div>"
     )
 
 
@@ -495,7 +511,9 @@ def render_run_history(runs: list[dict]) -> str:
     rows = []
     for r in runs:
         delta = r.get("dq_delta", 0)
-        delta_cls = "val-good" if delta > 0 else ("val-bad" if delta < 0 else "val-neutral")
+        delta_cls = (
+            "val-good" if delta > 0 else ("val-bad" if delta < 0 else "val-neutral")
+        )
         delta_sign = "+" if delta > 0 else ""
         schema_badge = (
             '<span class="badge badge-hit">EXISTS</span>'
@@ -503,26 +521,26 @@ def render_run_history(runs: list[dict]) -> str:
             else '<span class="badge badge-miss">DERIVED</span>'
         )
         rows.append(
-            f'<tr>'
-            f'<td>Run {r["run_num"]}</td>'
-            f'<td>{html.escape(r["source"])}</td>'
-            f'<td>{html.escape(r["domain"])}</td>'
-            f'<td>{r["rows"]}</td>'
-            f'<td>{r["dq_pre"]:.1f}% → {r["dq_post"]:.1f}%</td>'
+            f"<tr>"
+            f"<td>Run {r['run_num']}</td>"
+            f"<td>{html.escape(r['source'])}</td>"
+            f"<td>{html.escape(r['domain'])}</td>"
+            f"<td>{r['rows']}</td>"
+            f"<td>{r['dq_pre']:.1f}% → {r['dq_post']:.1f}%</td>"
             f'<td class="{delta_cls}">{delta_sign}{delta:.1f}%</td>'
-            f'<td>{r["registry_hits"]}</td>'
-            f'<td>{r["functions_generated"]}</td>'
-            f'<td>{schema_badge}</td>'
-            f'</tr>'
+            f"<td>{r['registry_hits']}</td>"
+            f"<td>{r['functions_generated']}</td>"
+            f"<td>{schema_badge}</td>"
+            f"</tr>"
         )
     return (
         '<table class="schema-table">'
-        '<thead><tr>'
-        '<th>#</th><th>Source</th><th>Domain</th><th>Rows</th>'
-        '<th>DQ (Pre→Post)</th><th>Delta</th><th>Reg. Hits</th><th>Generated</th><th>Schema</th>'
-        '</tr></thead>'
-        f'<tbody>{"".join(rows)}</tbody>'
-        '</table>'
+        "<thead><tr>"
+        "<th>#</th><th>Source</th><th>Domain</th><th>Rows</th>"
+        "<th>DQ (Pre→Post)</th><th>Delta</th><th>Reg. Hits</th><th>Generated</th><th>Schema</th>"
+        "</tr></thead>"
+        f"<tbody>{''.join(rows)}</tbody>"
+        "</table>"
     )
 
 
@@ -532,8 +550,8 @@ def render_quarantine_table(quarantine_reasons: list[dict], df=None) -> str:
         return (
             '<div style="background:#dafbe1; border:1px solid #4ac26b; border-radius:8px; '
             'padding:16px; color:#1a7f37; text-align:center; margin:0.5rem 0;">'
-            '&#10003; All rows passed post-enrichment validation'
-            '</div>'
+            "&#10003; All rows passed post-enrichment validation"
+            "</div>"
         )
 
     rows = []
@@ -549,18 +567,142 @@ def render_quarantine_table(quarantine_reasons: list[dict], df=None) -> str:
                 pass
 
         rows.append(
-            f'<tr>'
-            f'<td>{idx}</td>'
-            f'<td>{html.escape(product)}</td>'
+            f"<tr>"
+            f"<td>{idx}</td>"
+            f"<td>{html.escape(product)}</td>"
             f'<td class="reason">{html.escape(missing)}</td>'
-            f'</tr>'
+            f"</tr>"
         )
 
     return (
         f'<table class="quarantine-table">'
-        f'<thead><tr><th>Row</th><th>Product</th><th>Missing Fields</th></tr></thead>'
-        f'<tbody>{"".join(rows)}</tbody>'
-        f'</table>'
+        f"<thead><tr><th>Row</th><th>Product</th><th>Missing Fields</th></tr></thead>"
+        f"<tbody>{''.join(rows)}</tbody>"
+        f"</table>"
         f'<p style="color:#f85149; font-size:0.82rem; margin-top:8px;">'
-        f'{len(quarantine_reasons)} rows quarantined</p>'
+        f"{len(quarantine_reasons)} rows quarantined</p>"
+    )
+
+
+def render_agent_header(agent_num: int, role: str, activity: str) -> str:
+    """
+    Render an Agent header with distinct styling.
+
+    Args:
+        agent_num: Agent number (1, 2, or 3)
+        role: Role name (Orchestrator, Critic, Sequence Planner)
+        activity: Current activity description
+
+    Returns:
+        HTML string with agent header
+    """
+    colors = {
+        1: ("#0969da", "Agent 1"),
+        2: ("#8250df", "Agent 2"),
+        3: ("#1a7f37", "Agent 3"),
+    }
+    color, label = colors.get(agent_num, ("#57606a", f"Agent {agent_num}"))
+
+    return (
+        f'<div class="agent-header" style="'
+        f"background: linear-gradient(135deg, {color}15, {color}08); "
+        f"border-left: 4px solid {color}; "
+        f"padding: 12px 16px; "
+        f"margin: 16px 0; "
+        f'border-radius: 0 8px 8px 0;">'
+        f'<span style="font-weight: 600; color: {color};">{label}</span> '
+        f'<span style="color: #24292f; font-weight: 500;">({role})</span>'
+        f'<div style="color: #57606a; font-size: 0.9em; margin-top: 4px;">{html.escape(activity)}</div>'
+        f"</div>"
+    )
+
+
+def render_sampling_stats(strategy: dict) -> str:
+    """
+    Render Agent 1's sampling strategy statistics.
+
+    Args:
+        strategy: SamplingStrategy dataclass as dict with method, sample_size,
+                  fallback_triggered, fallback_reason
+
+    Returns:
+        HTML string with sampling stats
+    """
+    method = strategy.get("method", "unknown")
+    sample_size = strategy.get("sample_size", 0)
+    fallback = strategy.get("fallback_triggered", False)
+    reason = strategy.get("fallback_reason", "")
+
+    fallback_html = ""
+    if fallback:
+        fallback_html = f'<span class="badge badge-warn">Fallback: {html.escape(str(reason))}</span>'
+
+    return (
+        f'<div class="sampling-stats" style="'
+        f'background: #f6f8fa; padding: 12px; border-radius: 6px; margin: 12px 0;">'
+        f'<div style="font-size: 0.85em; color: #57606a; margin-bottom: 8px;">'
+        f"<strong>Agent 1 Sampling Strategy</strong></div>"
+        f'<div style="display: flex; gap: 16px; flex-wrap: wrap;">'
+        f'<div><span style="color: #24292f; font-weight: 500;">Method:</span> '
+        f"<code>{html.escape(method)}</code></div>"
+        f'<div><span style="color: #24292f; font-weight: 500;">Sample Size:</span> '
+        f"<span>{sample_size:,}</span></div>"
+        f"{fallback_html}"
+        f"</div>"
+        f"</div>"
+    )
+
+
+def render_confidence_badge(score: float) -> str:
+    """
+    Render a confidence score badge.
+
+    Args:
+        score: Confidence score between 0.0 and 1.0
+
+    Returns:
+        HTML string with badge
+    """
+    if score >= 0.9:
+        return '<span class="badge badge-pass">High</span>'
+    elif score >= 0.5:
+        return '<span class="badge badge-warn">Medium</span>'
+    else:
+        return '<span class="badge badge-fail">Low</span>'
+
+
+def render_extraction_only_flag() -> str:
+    """
+    Render the extraction-only badge for safety constraint columns.
+
+    Returns:
+        HTML string with extraction-only badge
+    """
+    return '<span class="badge badge-enrichment">EXTRACTION-ONLY</span>'
+
+
+def render_hitl_gate(gate_num: int, gate_type: str, options: list[str]) -> str:
+    """
+    Render a HITL approval gate.
+
+    Args:
+        gate_num: Gate number (1 or 3)
+        gate_type: Type of gate (Schema Mapping, Quarantine)
+        options: List of button label options
+
+    Returns:
+        HTML string with HITL gate UI
+    """
+    return (
+        f'<div class="hitl-gate" style="'
+        f"border: 2px dashed #f0883e; "
+        f"background: #fff8c5; "
+        f"padding: 16px; "
+        f"border-radius: 8px; "
+        f'margin: 16px 0;">'
+        f'<div style="font-weight: 600; color: #9a6700; margin-bottom: 8px;">'
+        f"HITL Gate {gate_num}: {html.escape(gate_type)}</div>"
+        f'<div style="font-size: 0.85em; color: #57606a;">'
+        f"Review the above and select an action to proceed.</div>"
+        f"</div>"
     )
