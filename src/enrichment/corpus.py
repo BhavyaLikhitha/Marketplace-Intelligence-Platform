@@ -264,7 +264,7 @@ def build_seed_corpus(df: pd.DataFrame) -> None:
         return
 
     try:
-        collection = _get_collection()
+        collection = _get_collection(collection_name)
     except Exception as e:
         logger.warning(f"ChromaDB unavailable for corpus seed: {e}")
         return

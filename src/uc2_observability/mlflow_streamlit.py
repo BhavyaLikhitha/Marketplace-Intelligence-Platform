@@ -108,6 +108,21 @@ def render_mlflow_page() -> None:
         st.info("No runs logged for this experiment yet.")
         return
 
+    # Drop invalid runs silently
+    for col in ("dq_score_post", "rows_in", "rows_out"):
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+    mask = pd.Series(True, index=df.index)
+    if "dq_score_post" in df.columns:
+        mask &= df["dq_score_post"].fillna(0) != 0.0
+    if "rows_in" in df.columns:
+        mask &= df["rows_in"].fillna(0) > 0
+    df = df[mask].reset_index(drop=True)
+
+    if df.empty:
+        st.info("No valid runs for this experiment yet.")
+        return
+
     st.caption(f"{len(df)} runs — refreshes every 30s")
 
     # ── top KPI cards ──────────────────────────────────────────────────────────
@@ -167,18 +182,18 @@ def render_mlflow_page() -> None:
             st.subheader(f"Anomaly Flags ({len(anomaly_runs)} runs affected)")
             st.dataframe(anomaly_runs.sort_values("start_time", ascending=False), use_container_width=True)
 
-    # ── full run table ─────────────────────────────────────────────────────────
-    st.subheader("All Runs")
+    # ── top runs table ────────────────────────────────────────────────────────
+    st.subheader("Top 10 Runs by DQ Score")
     display_cols = ["run_name", "start_time", "status", "source",
                     "dq_score_pre", "dq_score_post", "dq_delta",
                     "rows_in", "rows_out", "cost_usd", "llm_calls",
                     "s1_count", "s2_count", "s3_count", "anomaly_count"]
     show_cols = [c for c in display_cols if c in df.columns]
-    st.dataframe(
-        df[show_cols].sort_values("start_time", ascending=False) if "start_time" in show_cols else df[show_cols],
-        use_container_width=True,
-        height=400,
-    )
+    sort_col = "dq_score_post" if "dq_score_post" in df.columns else \
+               ("start_time" if "start_time" in show_cols else None)
+    table_df = df[show_cols].sort_values(sort_col, ascending=False).head(10) \
+               if sort_col else df[show_cols].head(10)
+    st.dataframe(table_df, use_container_width=True, height=400)
 
     # ── backfill trigger ──────────────────────────────────────────────────────
     with st.expander("Backfill historical runs from Prometheus"):

@@ -3,11 +3,11 @@
   "title": "ETL Pipeline Observability",
   "description": "Live data-quality view of the food-product ETL pipeline.",
   "schemaVersion": 38,
-  "version": 1,
+  "version": 6,
   "refresh": "30s",
   "graphTooltip": 1,
   "time": {
-    "from": "now-24h",
+    "from": "now-7d",
     "to": "now"
   },
   "tags": [
