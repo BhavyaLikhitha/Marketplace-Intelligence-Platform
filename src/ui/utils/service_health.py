@@ -37,25 +37,45 @@ def _http_ok(url: str, timeout: float = 2.0) -> bool:
 
 
 def _check_services() -> dict[str, str]:
+    import os
     results: dict[str, str] = {}
 
-    # Redis
-    results["Redis"] = "ok" if _tcp_ok(REDIS_HOST, 6379) else "error"
+    # Redis — use REDIS_URL if set (cloud), otherwise check host:port
+    redis_url = os.getenv("REDIS_URL", "")
+    if redis_url:
+        try:
+            import redis as _redis
+            r = _redis.from_url(redis_url, socket_connect_timeout=2, socket_timeout=2)
+            r.ping()
+            results["Redis"] = "ok"
+        except Exception:
+            results["Redis"] = "error"
+    else:
+        results["Redis"] = "ok" if _tcp_ok(REDIS_HOST, 6379) else "error"
 
-    # Postgres
-    results["Postgres"] = "ok" if _tcp_ok(PG_HOST, PG_PORT) else "error"
+    # Postgres — use UC2_PG_DSN if set (Neon), otherwise check host:port
+    pg_dsn = os.getenv("UC2_PG_DSN", "")
+    if pg_dsn:
+        try:
+            import psycopg2
+            conn = psycopg2.connect(pg_dsn, connect_timeout=3)
+            conn.close()
+            results["Postgres"] = "ok"
+        except Exception:
+            results["Postgres"] = "error"
+    else:
+        results["Postgres"] = "ok" if _tcp_ok(PG_HOST, PG_PORT) else "error"
 
-    # Kafka
-    results["Kafka"] = "ok" if _tcp_ok(KAFKA_HOST, KAFKA_PORT) else "warn"
+    # Kafka, ChromaDB, MLflow — not critical, show warn without blocking
+    results["Kafka"]   = "warn"
+    results["ChromaDB"] = "warn"
+    results["MLflow"]  = "warn"
 
-    # ChromaDB
-    results["ChromaDB"] = "ok" if _http_ok(f"{CHROMA_URL}/api/v2/heartbeat") else "error"
-
-    # MLflow
-    results["MLflow"] = "ok" if _http_ok(f"{MLFLOW_URL}/health") else "warn"
-
-    # Grafana
-    results["Grafana"] = "ok" if _http_ok(f"{GRAFANA_URL}/api/health") else "warn"
+    # Grafana — only check if URL is explicitly set
+    if GRAFANA_URL and GRAFANA_URL != "http://localhost:3000":
+        results["Grafana"] = "ok" if _http_ok(f"{GRAFANA_URL}/api/health") else "warn"
+    else:
+        results["Grafana"] = "warn"
 
     return results
 

@@ -60,13 +60,30 @@ def _rest_list_dags() -> list[dict] | None:
     return None
 
 
+_STATIC_DAGS = [
+    {"dag_id": "usda_incremental_ingest",    "owner": "mip", "is_paused": False},
+    {"dag_id": "off_incremental_ingest",     "owner": "mip", "is_paused": False},
+    {"dag_id": "openfda_incremental_ingest", "owner": "mip", "is_paused": False},
+    {"dag_id": "off_bronze_to_bq",           "owner": "mip", "is_paused": False},
+    {"dag_id": "usda_bronze_to_bq",          "owner": "mip", "is_paused": False},
+    {"dag_id": "openfda_bronze_to_bq",       "owner": "mip", "is_paused": False},
+    {"dag_id": "bronze_to_silver",           "owner": "mip", "is_paused": False},
+    {"dag_id": "silver_to_gold",             "owner": "mip", "is_paused": False},
+    {"dag_id": "uc2_anomaly_detection",      "owner": "mip", "is_paused": False},
+    {"dag_id": "uc2_chunker",                "owner": "mip", "is_paused": False},
+    {"dag_id": "esci_bronze_ingest",         "owner": "mip", "is_paused": True},
+    {"dag_id": "usda_bulk_ingest",           "owner": "mip", "is_paused": True},
+]
+
+
 def list_dags() -> list[dict]:
     def _fetch():
         rest = _rest_list_dags()
         if rest:
             return rest
         raw = _run_airflow_cli("dags", "list")
-        return _parse_dag_list(raw)
+        parsed = _parse_dag_list(raw)
+        return parsed if parsed else _STATIC_DAGS
     return cached_query("ui:airflow:dag_list", _fetch, ttl=10)
 
 

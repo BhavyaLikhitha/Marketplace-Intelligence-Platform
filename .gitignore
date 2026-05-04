@@ -3,7 +3,7 @@
 # Python
 
 # =========================
-
+run_logs_extract.txt
 **pycache**/
 *.py[cod]
 *$py.class
@@ -123,3 +123,8 @@ CLAUDE.md
 *.bak
 airflow/airflow.db
 .claude/settings.local.json
+
+# Grafana dashboard exports
+dashboard-*.json
+grafana_cloud_dashboard.json
+image.png

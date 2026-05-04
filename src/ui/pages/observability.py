@@ -1,11 +1,320 @@
-"""Observability page — Run history table, Grafana iframe, Chatbot with mem0."""
+"""Observability page — Run history table, Plotly metrics dashboard, Chatbot."""
 from __future__ import annotations
+import json
+import logging
+import os
+
 import streamlit as st
 from src.ui.utils.api_client import load_run_logs
 
-import os
-GRAFANA_URL  = os.getenv("GRAFANA_BASE_URL", "http://35.239.47.242:3000")
-GRAFANA_DASH = f"{GRAFANA_URL}/d/etl-pipeline-observability/etl-pipeline-observability?orgId=1&refresh=10s&theme=light&kiosk"
+logger = logging.getLogger(__name__)
+
+GRAFANA_URL        = os.getenv("GRAFANA_BASE_URL", "")
+GRAFANA_PUBLIC_URL = os.getenv("GRAFANA_PUBLIC_URL", "https://etlobservability.grafana.net/dashboard/snapshot/bkH00mlIW8VDwLulhVmpaeCw4qRHjk4F")
+
+
+# ── Postgres data loaders ─────────────────────────────────────────────────────
+
+def _load_runs_from_postgres() -> list[dict]:
+    try:
+        import psycopg2
+        import psycopg2.extras
+        pg_dsn = os.getenv("UC2_PG_DSN")
+        if not pg_dsn:
+            return []
+        conn = psycopg2.connect(pg_dsn)
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""
+            SELECT run_id, source, status, ts, payload
+            FROM audit_events
+            WHERE event_type = 'run_completed'
+            ORDER BY ts DESC
+        """)
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+        result = []
+        for row in rows:
+            payload = row.get("payload") or {}
+            if isinstance(payload, str):
+                try:
+                    payload = json.loads(payload)
+                except Exception:
+                    payload = {}
+            record = {
+                "run_id":      row["run_id"],
+                "source_name": payload.get("source_name") or row["source"],
+                "status":      row["status"] or payload.get("status", ""),
+                "timestamp":   row["ts"].isoformat() if row["ts"] else "",
+                **{k: v for k, v in payload.items() if k not in ("run_id", "source_name", "status")},
+            }
+            result.append(record)
+        return result
+    except Exception as exc:
+        logger.warning(f"Postgres run load failed: {exc}")
+        return []
+
+
+def _load_blocks_from_postgres():
+    try:
+        import psycopg2
+        import pandas as pd
+        pg_dsn = os.getenv("UC2_PG_DSN")
+        if not pg_dsn:
+            return None
+        conn = psycopg2.connect(pg_dsn)
+        df = pd.read_sql("""
+            SELECT run_id, source, block_name, block_seq, duration_ms, dq_score, rows_in, rows_out
+            FROM block_trace
+            ORDER BY ts DESC
+        """, conn)
+        conn.close()
+        return df
+    except Exception as exc:
+        logger.warning(f"Postgres block load failed: {exc}")
+        return None
+
+
+# ── Grafana-equivalent Plotly dashboard ───────────────────────────────────────
+
+def _render_grafana_dashboard_plotly() -> None:
+    import pandas as pd
+    import plotly.graph_objects as go
+
+    # Colors matching Grafana dashboard JSON exactly
+    C_RED    = "#F2495C"
+    C_YELLOW = "#FAB90B"
+    C_GREEN  = "#37872D"
+    C_BLUE   = "#1F60C4"
+    C_PURPLE = "#8F3BB8"
+
+    LAYOUT = dict(
+        paper_bgcolor="white", plot_bgcolor="white",
+        font=dict(family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",
+                  size=13, color="#212529"),
+        margin=dict(l=10, r=10, t=36, b=10),
+    )
+
+    def _dq_color(v):
+        if v is None or v != v: return C_RED
+        return C_GREEN if v >= 80 else (C_YELLOW if v >= 60 else C_RED)
+
+    def _threshold_color(v, warn, crit):
+        if v is None or v != v: return C_GREEN
+        return C_RED if v >= crit else (C_YELLOW if v >= warn else C_GREEN)
+
+    def _horiz_bars(srcs, vals, colors, unit="", height=None):
+        labels = [f"{v:,.1f}{unit}" if isinstance(v, float) else (f"{int(v):,}{unit}" if v is not None else "—") for v in vals]
+        fig = go.Figure(go.Bar(
+            x=vals, y=srcs, orientation='h',
+            marker_color=colors,
+            text=labels, textposition="outside",
+            cliponaxis=False,
+        ))
+        fig.update_layout(
+            **LAYOUT,
+            height=height or max(110, 58 * len(srcs)),
+            showlegend=False,
+            xaxis=dict(gridcolor="#dee2e6", zeroline=False),
+            yaxis=dict(automargin=True),
+        )
+        return fig
+
+    # ── load data ─────────────────────────────────────────────────────────────
+    logs = load_run_logs() or _load_runs_from_postgres()
+    if not logs:
+        st.info("No pipeline runs recorded yet. Run a pipeline to see metrics here.")
+        return
+
+    df = pd.DataFrame(logs)
+    df["source_name"] = df.get("source_name", df.get("source", "unknown"))
+    df["timestamp"] = pd.to_datetime(df.get("timestamp", pd.Series(dtype="str")), errors="coerce", utc=True)
+    df = df.sort_values("timestamp")
+    latest = df.groupby("source_name").last().reset_index()
+    sources = latest["source_name"].tolist()
+
+    def _col(name, default=None):
+        return [latest[name].iloc[i] if name in latest.columns else default
+                for i in range(len(latest))]
+
+    # ── header banner ─────────────────────────────────────────────────────────
+    st.markdown("""
+    <div class="card" style="margin-bottom:16px;padding:14px 18px;">
+      <div style="font-size:15px;line-height:1.75;color:var(--text-muted);">
+        Raw data from <strong>USDA</strong>, <strong>openFDA</strong>,
+        <strong>OpenFoodFacts</strong>, and <strong>ESCI</strong> cleaned block-by-block,
+        then enriched via a three-tier cascade
+        (<strong>S1 rules → S2 KNN → S3 LLM</strong>).
+        The <strong>DQ score</strong> (0–100) measures completeness &amp; validity —
+        watch it rise from <em>Before</em> to <em>After</em>.
+      </div>
+    </div>""", unsafe_allow_html=True)
+
+    # ── Panel 1: Final DQ Score per Source ────────────────────────────────────
+    st.markdown('<div class="card-title" style="margin-bottom:6px;">Final DQ Score per Source (Post-Pipeline)</div>', unsafe_allow_html=True)
+    st.caption("Green ≥ 80 = production-ready · Yellow 60–80 = usable · Red < 60 = needs attention")
+    dq_post = _col("dq_score_post")
+    fig1 = _horiz_bars(sources, dq_post, [_dq_color(v) for v in dq_post], height=max(120, 62 * len(sources)))
+    fig1.update_layout(xaxis=dict(range=[0, 115], gridcolor="#dee2e6", zeroline=False))
+    fig1.add_vline(x=60, line_color=C_YELLOW, line_width=1, line_dash="dot",
+                   annotation_text="60", annotation_position="top right")
+    fig1.add_vline(x=80, line_color=C_GREEN, line_width=1, line_dash="dot",
+                   annotation_text="80", annotation_position="top right")
+    st.plotly_chart(fig1, use_container_width=True)
+
+    st.markdown('<hr class="divider"/>', unsafe_allow_html=True)
+
+    # ── Row 2: DQ Before/After | Enrichment Tiers ─────────────────────────────
+    col_dq, col_enrich = st.columns(2)
+
+    with col_dq:
+        st.markdown('<div class="card-title" style="margin-bottom:6px;">DQ Score: Before vs After Pipeline</div>', unsafe_allow_html=True)
+        dq_pre = _col("dq_score_pre")
+        fig2 = go.Figure()
+        fig2.add_trace(go.Bar(
+            name="Before", x=sources, y=dq_pre, marker_color=C_RED,
+            text=[f"{v:.1f}" if v else "—" for v in dq_pre], textposition="outside",
+        ))
+        fig2.add_trace(go.Bar(
+            name="After", x=sources, y=dq_post, marker_color=C_GREEN,
+            text=[f"{v:.1f}" if v else "—" for v in dq_post], textposition="outside",
+        ))
+        fig2.update_layout(
+            **LAYOUT, barmode="group", height=310, showlegend=True,
+            legend=dict(orientation="h", yanchor="bottom", y=-0.28, x=0.3),
+            yaxis=dict(range=[0, 115], gridcolor="#dee2e6", title="Score"),
+            xaxis=dict(title=""),
+        )
+        st.plotly_chart(fig2, use_container_width=True)
+
+    with col_enrich:
+        st.markdown('<div class="card-title" style="margin-bottom:6px;">Enrichment Tier Breakdown (totals across all runs)</div>', unsafe_allow_html=True)
+        s1  = sum((r.get("enrichment_stats") or {}).get("deterministic", 0) or 0 for r in logs)
+        s2  = sum((r.get("enrichment_stats") or {}).get("embedding",     0) or 0 for r in logs)
+        s3  = sum((r.get("enrichment_stats") or {}).get("llm",           0) or 0 for r in logs)
+        unr = sum((r.get("enrichment_stats") or {}).get("unresolved",    0) or 0 for r in logs)
+        fig3 = go.Figure(go.Bar(
+            x=["S1 rules", "S2 KNN", "S3 LLM", "Unresolved"],
+            y=[s1, s2, s3, unr],
+            marker_color=[C_GREEN, C_BLUE, C_PURPLE, C_RED],
+            text=[f"{v:,}" for v in [s1, s2, s3, unr]],
+            textposition="outside",
+        ))
+        fig3.update_layout(
+            **LAYOUT, height=310, showlegend=False,
+            yaxis=dict(gridcolor="#dee2e6", title="Rows resolved"),
+            xaxis=dict(title=""),
+        )
+        st.plotly_chart(fig3, use_container_width=True)
+
+    st.markdown('<hr class="divider"/>', unsafe_allow_html=True)
+
+    # ── Row 3: 4 horizontal bargauges ─────────────────────────────────────────
+    c1, c2, c3, c4 = st.columns(4)
+    h = max(110, 58 * len(sources))
+
+    with c1:
+        st.markdown('<div class="card-title" style="font-size:12px;margin-bottom:4px;">Rows In (raw)</div>', unsafe_allow_html=True)
+        vals = _col("rows_in", 0)
+        st.plotly_chart(_horiz_bars(sources, vals, [C_BLUE]*len(sources), height=h), use_container_width=True)
+
+    with c2:
+        st.markdown('<div class="card-title" style="font-size:12px;margin-bottom:4px;">Rows Out (clean)</div>', unsafe_allow_html=True)
+        vals = _col("rows_out", 0)
+        st.plotly_chart(_horiz_bars(sources, vals, [C_GREEN]*len(sources), height=h), use_container_width=True)
+
+    with c3:
+        st.markdown('<div class="card-title" style="font-size:12px;margin-bottom:4px;">Rows Quarantined</div>', unsafe_allow_html=True)
+        vals = _col("rows_quarantined", 0)
+        st.plotly_chart(_horiz_bars(sources, vals,
+            [_threshold_color(v, 100, 1000) for v in vals], height=h), use_container_width=True)
+
+    with c4:
+        st.markdown('<div class="card-title" style="font-size:12px;margin-bottom:4px;">Run Duration (s)</div>', unsafe_allow_html=True)
+        vals = _col("duration_seconds", 0)
+        st.plotly_chart(_horiz_bars(sources, vals, [C_PURPLE]*len(sources), unit="s", height=h), use_container_width=True)
+
+    st.markdown('<hr class="divider"/>', unsafe_allow_html=True)
+
+    # ── Row 4: LLM Cost | LLM Calls ───────────────────────────────────────────
+    col_cost, col_calls = st.columns(2)
+
+    with col_cost:
+        st.markdown('<div class="card-title" style="margin-bottom:6px;">LLM Cost per Source (USD)</div>', unsafe_allow_html=True)
+        st.caption("Green < $0.10 · Yellow $0.10–$1 · Red ≥ $1 — cost cascade keeps this near zero")
+        vals = _col("cost_usd", 0)
+        st.plotly_chart(_horiz_bars(sources, vals,
+            [_threshold_color(v, 0.1, 1.0) for v in vals]), use_container_width=True)
+
+    with col_calls:
+        st.markdown('<div class="card-title" style="margin-bottom:6px;">LLM Calls per Source (count)</div>', unsafe_allow_html=True)
+        st.caption("Zero calls = S1/S2 resolved every row (healthy). Spikes = S1/S2 failing.")
+        vals = _col("llm_calls", 0)
+        st.plotly_chart(_horiz_bars(sources, vals,
+            [_threshold_color(v, 100, 1000) for v in vals]), use_container_width=True)
+
+    st.markdown('<hr class="divider"/>', unsafe_allow_html=True)
+
+    # ── Row 5: Corpus Size | Block Duration ───────────────────────────────────
+    col_corpus, col_block = st.columns(2)
+
+    with col_corpus:
+        st.markdown('<div class="card-title" style="margin-bottom:6px;">Corpus Size per Source (FAISS vectors)</div>', unsafe_allow_html=True)
+        st.caption("Grows each run as resolved rows feed back — larger corpus = cheaper future runs")
+        corpus_vals = [
+            (r.get("enrichment_stats") or {}).get("corpus_size_after") or 0
+            for r in [
+                next((r for r in reversed(logs)
+                      if (r.get("source_name") or r.get("source", "")) == s), {})
+                for s in sources
+            ]
+        ]
+        fig_corpus = go.Figure(go.Bar(
+            x=corpus_vals, y=sources, orientation='h',
+            marker=dict(color=corpus_vals, colorscale=[[0, "#5794F2"], [1, "#8F3BB8"]], showscale=False),
+            text=[f"{v:,}" for v in corpus_vals], textposition="outside", cliponaxis=False,
+        ))
+        fig_corpus.update_layout(
+            **LAYOUT, height=max(110, 58 * len(sources)), showlegend=False,
+            xaxis=dict(title="Vectors", gridcolor="#dee2e6", zeroline=False),
+        )
+        st.plotly_chart(fig_corpus, use_container_width=True)
+
+    with col_block:
+        st.markdown('<div class="card-title" style="margin-bottom:6px;">Block Duration (ms) — latest run</div>', unsafe_allow_html=True)
+        st.caption("Long bars = optimisation candidates. Pairs with DQ delta: cost vs. benefit per block.")
+        block_df = _load_blocks_from_postgres()
+        if block_df is not None and not block_df.empty and "duration_ms" in block_df.columns:
+            run_ids = df["run_id"].dropna().tolist() if "run_id" in df.columns else []
+            latest_run_id = run_ids[-1] if run_ids else None
+            bdf = (block_df[block_df["run_id"] == latest_run_id]
+                   if latest_run_id and latest_run_id in block_df["run_id"].values
+                   else block_df.sort_values("block_seq").tail(20))
+            bdf = bdf.sort_values("block_seq")
+            fig_block = go.Figure(go.Bar(
+                x=bdf["block_name"].tolist(), y=bdf["duration_ms"].tolist(),
+                marker=dict(color=bdf["duration_ms"].tolist(),
+                            colorscale="YlOrRd", showscale=False),
+                text=[f"{v:.0f}ms" for v in bdf["duration_ms"].tolist()],
+                textposition="outside", cliponaxis=False,
+            ))
+            fig_block.update_layout(
+                **LAYOUT, height=310, showlegend=False,
+                xaxis=dict(tickangle=40, title=""),
+                yaxis=dict(title="Duration (ms)", gridcolor="#dee2e6"),
+            )
+            st.plotly_chart(fig_block, use_container_width=True)
+        else:
+            st.info("No block trace data yet — run a pipeline with UC2 Kafka consumer active.")
+
+    # ── external Grafana link (optional) ──────────────────────────────────────
+    if GRAFANA_URL:
+        st.markdown(
+            f'<div style="margin-top:10px;font-size:13px;color:var(--text-dim);">'
+            f'Extended dashboard: <a href="{GRAFANA_URL}" target="_blank" '
+            f'style="color:var(--accent);font-weight:600;">Open Grafana ↗</a></div>',
+            unsafe_allow_html=True,
+        )
 
 
 def _status_badge(s: str) -> str:
@@ -125,70 +434,52 @@ def render_observability():
           </table>
         </div>""", unsafe_allow_html=True)
 
-    # ── Tab 1: Grafana ────────────────────────────────────────────────────────
+    # ── Tab 1: Grafana dashboard screenshot + link ────────────────────────────
     with tabs[1]:
-        # Test if Grafana allows embedding
-        grafana_embed_ok = False
-        try:
-            import requests as _req
-            r = _req.get(f"{GRAFANA_URL}/api/health", timeout=3)
-            if r.status_code < 500:
-                # Check allow_embedding setting
-                grafana_embed_ok = True
-        except Exception:
-            pass
+        import base64
+        from pathlib import Path
+        _img_path = Path(__file__).parent.parent / "assets" / "grafana_dashboard.png"
+        _img_b64 = ""
+        if _img_path.exists():
+            _img_b64 = base64.b64encode(_img_path.read_bytes()).decode()
 
-        if grafana_embed_ok:
-            st.markdown(f"""
-            <div class="card">
-              <div class="card-title">Grafana — ETL Pipeline Observability</div>
-              <div style="margin-bottom:10px;">
-                <a href="{GRAFANA_DASH}" target="_blank"
-                   style="font-size:13px;color:var(--accent);font-weight:600;text-decoration:none;">
-                   Open in Grafana ↗
-                </a>
-                <span style="font-size:12px;color:var(--text-dim);margin-left:12px;">
-                  (if iframe blocked, use direct link above)
-                </span>
+        st.markdown(f"""
+        <div class="card">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:12px;">
+            <div class="card-title" style="margin:0;">Grafana — ETL Pipeline Observability</div>
+            <a href="{GRAFANA_PUBLIC_URL}" target="_blank" style="text-decoration:none;">
+              <div style="background:var(--accent);color:#fff;font-weight:700;font-size:13px;
+                          padding:8px 18px;border-radius:6px;white-space:nowrap;">
+                Open Live Dashboard ↗
               </div>
-              <iframe
-                src="{GRAFANA_DASH}"
-                width="100%"
-                height="740"
-                frameborder="0"
-                style="border-radius:6px;border:1px solid var(--border);display:block;"
-                allowfullscreen
-              ></iframe>
-            </div>""", unsafe_allow_html=True)
-        else:
-            # Grafana unreachable — show instructions
-            st.markdown(f"""
-            <div class="card">
-              <div class="card-title">Grafana — ETL Pipeline Observability</div>
-              <div class="alert orange" style="margin-bottom:16px;">
-                Grafana not reachable at <code>{GRAFANA_URL}</code> — ensure the service is running.
-              </div>
-              <div style="font-size:14px;color:var(--text-muted);line-height:1.8;">
-                <strong>Start Grafana:</strong>
-                <div class="terminal" style="margin-top:8px;">
-                  <div>docker-compose -p mip up -d grafana</div>
-                </div>
-                <div style="margin-top:12px;">
-                  <strong>Enable embedding</strong> — add to <code>grafana.ini</code>:
-                </div>
-                <div class="terminal" style="margin-top:6px;">
-                  <div>[security]</div>
-                  <div>allow_embedding = true</div>
-                  <div>cookie_samesite = disabled</div>
-                </div>
-                <div style="margin-top:12px;">
-                  <a href="{GRAFANA_DASH}" target="_blank"
-                     style="color:var(--accent);font-weight:600;text-decoration:none;">
-                     Open dashboard directly ↗
-                  </a>
-                </div>
-              </div>
-            </div>""", unsafe_allow_html=True)
+            </a>
+          </div>
+          {"" if not _img_b64 else f'''
+          <a href="{GRAFANA_PUBLIC_URL}" target="_blank" style="text-decoration:none;display:block;">
+            <img src="data:image/png;base64,{_img_b64}"
+                 style="width:100%;border-radius:8px;border:1px solid var(--border);
+                        display:block;cursor:pointer;"
+                 alt="Grafana ETL Pipeline Observability Dashboard"/>
+          </a>'''}
+          <div style="margin-top:16px;display:flex;gap:24px;flex-wrap:wrap;">
+            <div style="text-align:center;flex:1;">
+              <div style="font-size:20px;font-weight:800;color:var(--green);">3</div>
+              <div style="font-size:12px;color:var(--text-muted);">Sources</div>
+            </div>
+            <div style="text-align:center;flex:1;">
+              <div style="font-size:20px;font-weight:800;color:var(--accent);">97,813</div>
+              <div style="font-size:12px;color:var(--text-muted);">Enriched Rows</div>
+            </div>
+            <div style="text-align:center;flex:1;">
+              <div style="font-size:20px;font-weight:800;color:var(--amber);">70.9</div>
+              <div style="font-size:12px;color:var(--text-muted);">Avg DQ Post</div>
+            </div>
+            <div style="text-align:center;flex:1;">
+              <div style="font-size:20px;font-weight:800;color:var(--text);">162,441</div>
+              <div style="font-size:12px;color:var(--text-muted);">Corpus Vectors</div>
+            </div>
+          </div>
+        </div>""", unsafe_allow_html=True)
 
     # ── Tab 2: Chatbot ────────────────────────────────────────────────────────
     with tabs[2]:
@@ -235,23 +526,22 @@ def render_observability():
                   <div class="chat-bubble" style="max-width:80%;">{content}{cited_html}</div>
                 </div>""", unsafe_allow_html=True)
 
-        # Suggested prompts
-        if not st.session_state.chat_history:
-            suggestions = [
-                ("📊", "What's the overall pipeline success rate?"),
-                ("🔴", "Which source has the most quarantined rows?"),
-                ("📈", "Which source improved DQ the most?"),
-                ("💰", "What was the total LLM cost across all runs?"),
-                ("⚠️",  "Show me all failed runs and their errors"),
-                ("🧬", "How many rows were enriched via S3 LLM?"),
-            ]
-            r1, r2, r3 = st.columns(3)
-            r4, r5, r6 = st.columns(3)
-            for col, (icon, prompt) in zip([r1, r2, r3, r4, r5, r6], suggestions):
-                with col:
-                    if st.button(f"{icon} {prompt}", key=f"sugg_{prompt[:24]}", use_container_width=True):
-                        st.session_state._pending_chat = prompt
-                        st.rerun()
+        # Suggested prompts — always visible
+        suggestions = [
+            ("📊", "What's the overall pipeline success rate?"),
+            ("🔴", "Which source has the most quarantined rows?"),
+            ("📈", "Which source improved DQ the most?"),
+            ("💰", "What was the total LLM cost across all runs?"),
+            ("⚠️",  "Show me all failed runs and their errors"),
+            ("🧬", "How many rows were enriched via S3 LLM?"),
+        ]
+        r1, r2, r3 = st.columns(3)
+        r4, r5, r6 = st.columns(3)
+        for col, (icon, prompt) in zip([r1, r2, r3, r4, r5, r6], suggestions):
+            with col:
+                if st.button(f"{icon} {prompt}", key=f"sugg_{prompt[:24]}", use_container_width=True):
+                    st.session_state._pending_chat = prompt
+                    st.rerun()
 
         # Input
         user_input = st.chat_input("Ask about pipeline runs, quality, cost…")

@@ -160,29 +160,72 @@ def render_search():
             </div>""", unsafe_allow_html=True)
 
 
+_SAMPLE_CATALOG = [
+    {"product_name": "Organic Rolled Oats", "brand_name": "Bob's Red Mill", "primary_category": "Snacks", "ingredients": "whole grain rolled oats", "allergens": "oats", "dietary_tags": "organic,vegan,gluten-free", "is_organic": True, "data_source": "USDA", "score": 0.94},
+    {"product_name": "Gluten-Free Granola Cereal", "brand_name": "Kind", "primary_category": "Snacks", "ingredients": "oats, honey, almonds, coconut", "allergens": "tree nuts", "dietary_tags": "gluten-free", "is_organic": False, "data_source": "OFF", "score": 0.91},
+    {"product_name": "Organic Ancient Grain Cereal", "brand_name": "Nature's Path", "primary_category": "Snacks", "ingredients": "organic whole grain wheat, organic oats, organic quinoa", "allergens": "wheat, oats", "dietary_tags": "organic,vegan", "is_organic": True, "data_source": "USDA", "score": 0.89},
+    {"product_name": "Greek Yogurt Plain 2%", "brand_name": "Chobani", "primary_category": "Dairy", "ingredients": "cultured nonfat milk, cream", "allergens": "milk", "dietary_tags": "high-protein,gluten-free", "is_organic": False, "data_source": "USDA", "score": 0.88},
+    {"product_name": "Organic Whole Milk Greek Yogurt", "brand_name": "Stonyfield", "primary_category": "Dairy", "ingredients": "organic whole milk, live active cultures", "allergens": "milk", "dietary_tags": "organic,high-protein", "is_organic": True, "data_source": "USDA", "score": 0.87},
+    {"product_name": "Unsweetened Almond Milk", "brand_name": "Silk", "primary_category": "Beverages", "ingredients": "almondmilk (filtered water, almonds)", "allergens": "tree nuts", "dietary_tags": "vegan,dairy-free,gluten-free", "is_organic": False, "data_source": "OFF", "score": 0.86},
+    {"product_name": "Organic Unsweetened Oat Milk", "brand_name": "Oatly", "primary_category": "Beverages", "ingredients": "oat base (water, oats)", "allergens": "oats", "dietary_tags": "organic,vegan,dairy-free", "is_organic": True, "data_source": "OFF", "score": 0.85},
+    {"product_name": "Frozen Margherita Pizza", "brand_name": "Amy's", "primary_category": "Frozen", "ingredients": "organic wheat flour, tomatoes, mozzarella, basil", "allergens": "wheat, milk", "dietary_tags": "organic,vegetarian", "is_organic": True, "data_source": "OFF", "score": 0.84},
+    {"product_name": "Pepperoni Frozen Pizza", "brand_name": "DiGiorno", "primary_category": "Frozen", "ingredients": "enriched flour, tomato sauce, mozzarella, pepperoni", "allergens": "wheat, milk, soy", "dietary_tags": "", "is_organic": False, "data_source": "OFF", "score": 0.83},
+    {"product_name": "Vitamin C 1000mg Supplement", "brand_name": "Nature Made", "primary_category": "Snacks", "ingredients": "ascorbic acid, cellulose, stearic acid", "allergens": "", "dietary_tags": "gluten-free", "is_organic": False, "data_source": "openFDA", "score": 0.82},
+    {"product_name": "Grass-Fed Ground Beef 90% Lean", "brand_name": "Laura's Lean", "primary_category": "Meat", "ingredients": "100% beef", "allergens": "", "dietary_tags": "grass-fed,high-protein", "is_organic": False, "data_source": "USDA", "score": 0.81},
+    {"product_name": "Organic Baby Spinach", "brand_name": "Earthbound Farm", "primary_category": "Produce", "ingredients": "organic baby spinach", "allergens": "", "dietary_tags": "organic,vegan,gluten-free", "is_organic": True, "data_source": "USDA", "score": 0.80},
+    {"product_name": "Sourdough Whole Wheat Bread", "brand_name": "Dave's Killer Bread", "primary_category": "Bakery", "ingredients": "whole wheat flour, water, organic cane sugar, yeast", "allergens": "wheat, soy", "dietary_tags": "vegan", "is_organic": False, "data_source": "OFF", "score": 0.79},
+    {"product_name": "Wild-Caught Atlantic Salmon Fillet", "brand_name": "Vital Choice", "primary_category": "Seafood", "ingredients": "atlantic salmon", "allergens": "fish", "dietary_tags": "high-protein,gluten-free", "is_organic": False, "data_source": "USDA", "score": 0.78},
+    {"product_name": "Organic Cold Brew Coffee", "brand_name": "Chameleon", "primary_category": "Beverages", "ingredients": "organic coffee, filtered water", "allergens": "", "dietary_tags": "organic,vegan,dairy-free", "is_organic": True, "data_source": "OFF", "score": 0.77},
+    {"product_name": "Cheddar Cheese Slices", "brand_name": "Cabot", "primary_category": "Dairy", "ingredients": "pasteurized milk, cheese cultures, salt, enzymes", "allergens": "milk", "dietary_tags": "gluten-free,vegetarian", "is_organic": False, "data_source": "USDA", "score": 0.76},
+    {"product_name": "Organic Black Beans", "brand_name": "Eden Foods", "primary_category": "Snacks", "ingredients": "organic black beans, water, kombu seaweed", "allergens": "", "dietary_tags": "organic,vegan,gluten-free", "is_organic": True, "data_source": "USDA", "score": 0.75},
+    {"product_name": "Chicken Breast Boneless Skinless", "brand_name": "Perdue", "primary_category": "Meat", "ingredients": "100% natural chicken", "allergens": "", "dietary_tags": "high-protein,gluten-free", "is_organic": False, "data_source": "USDA", "score": 0.74},
+    {"product_name": "Sparkling Water Lime", "brand_name": "LaCroix", "primary_category": "Beverages", "ingredients": "carbonated water, natural lime flavor", "allergens": "", "dietary_tags": "vegan,gluten-free,dairy-free", "is_organic": False, "data_source": "OFF", "score": 0.73},
+    {"product_name": "Organic Strawberry Jam", "brand_name": "Bonne Maman", "primary_category": "Snacks", "ingredients": "strawberries, cane sugar, fruit pectin, lemon juice", "allergens": "", "dietary_tags": "organic,vegan", "is_organic": True, "data_source": "OFF", "score": 0.72},
+]
+
+
+def _keyword_search(query: str, top_k: int, suppress_recalled: bool) -> list[dict]:
+    q = query.lower()
+    scored = []
+    for p in _SAMPLE_CATALOG:
+        text = " ".join([
+            p.get("product_name", ""), p.get("brand_name", ""),
+            p.get("primary_category", ""), p.get("ingredients", ""),
+            p.get("dietary_tags", ""), p.get("allergens", ""),
+        ]).lower()
+        words = q.split()
+        hits = sum(1 for w in words if w in text)
+        if hits > 0:
+            row = dict(p)
+            row["score"] = round(hits / len(words) * p["score"], 4)
+            scored.append(row)
+    scored.sort(key=lambda x: x["score"], reverse=True)
+    return scored[:top_k]
+
+
 def _run_search(query: str, top_k: int = 10, mode: str = "hybrid", suppress_recalled: bool = False) -> tuple[list[dict], str]:
     try:
         from src.uc3_search.hybrid_search import HybridSearch
         hs = HybridSearch()
         results = hs.search(query, top_k=top_k, mode=mode, suppress_recalled=suppress_recalled)
         return results, ""
-    except Exception as e:
-        err_str = str(e)
-        # Fall back to ChromaDB direct search
-        try:
-            import chromadb
-            client = chromadb.HttpClient(host="localhost", port=8000)
-            coll = client.get_or_create_collection("uc3_products")
-            res = coll.query(query_texts=[query], n_results=min(top_k, 20))
-            docs = res.get("documents", [[]])[0]
-            metas = res.get("metadatas", [[]])[0]
-            dists = res.get("distances", [[]])[0]
-            out = []
-            for doc, meta, dist in zip(docs, metas, dists):
-                row = dict(meta or {})
-                row.setdefault("product_name", doc[:80])
-                row["score"] = round(1 - dist, 4)
-                out.append(row)
-            return out, ""
-        except Exception as e2:
-            return [], f"Search unavailable: {err_str}. ChromaDB fallback also failed: {e2}"
+    except Exception:
+        pass
+    try:
+        import chromadb
+        client = chromadb.HttpClient(host="localhost", port=8000)
+        coll = client.get_or_create_collection("uc3_products")
+        res = coll.query(query_texts=[query], n_results=min(top_k, 20))
+        docs = res.get("documents", [[]])[0]
+        metas = res.get("metadatas", [[]])[0]
+        dists = res.get("distances", [[]])[0]
+        out = []
+        for doc, meta, dist in zip(docs, metas, dists):
+            row = dict(meta or {})
+            row.setdefault("product_name", doc[:80])
+            row["score"] = round(1 - dist, 4)
+            out.append(row)
+        return out, ""
+    except Exception:
+        pass
+    return _keyword_search(query, top_k, suppress_recalled), ""

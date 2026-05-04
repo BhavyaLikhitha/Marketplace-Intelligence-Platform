@@ -130,18 +130,28 @@ class CacheClient:
 
         try:
             import redis
-            self._pool = redis.ConnectionPool(
-                host=host,
-                port=port,
-                db=db,
-                max_connections=10,
-                socket_connect_timeout=1,
-                socket_timeout=1,
-            )
+            redis_url = os.environ.get("REDIS_URL", "")
+            if redis_url:
+                self._pool = redis.ConnectionPool.from_url(
+                    redis_url,
+                    max_connections=10,
+                    socket_connect_timeout=2,
+                    socket_timeout=2,
+                )
+                logger.info("Redis cache connecting via REDIS_URL")
+            else:
+                self._pool = redis.ConnectionPool(
+                    host=host,
+                    port=port,
+                    db=db,
+                    max_connections=10,
+                    socket_connect_timeout=1,
+                    socket_timeout=1,
+                )
+                logger.info(f"Redis cache connecting at {host}:{port}/{db}")
             conn = redis.Redis(connection_pool=self._pool)
             conn.ping()
             self._available = True
-            logger.info(f"Redis cache connected at {host}:{port}/{db}")
         except Exception as e:
             logger.warning(f"Redis unavailable: {e}. Falling back to SQLite cache.")
             if sqlite_fallback:

@@ -7,7 +7,7 @@
   "refresh": "30s",
   "graphTooltip": 1,
   "time": {
-    "from": "now-7d",
+    "from": "now-90d",
     "to": "now"
   },
   "tags": [
@@ -52,14 +52,14 @@
       },
       "options": {
         "mode": "markdown",
-        "content": "## Food-Product ETL Pipeline\n\nRaw CSVs from **USDA**, **openFDA**, **OpenFoodFacts**, and **ESCI** are cleaned block-by-block, then enriched in a three-tier cascade (**S1 rules → S2 KNN → S3 LLM**). The **DQ score** (0–100) measures completeness and validity — watch it rise from 'Before' to 'After'."
+        "content": "## Food-Product ETL Pipeline\n\nRaw CSVs from **USDA**, **openFDA**, **OpenFoodFacts**, and **ESCI** are cleaned block-by-block, then enriched in a three-tier cascade (**Semantic Mapping \u2192 KNN \u2192 LLM**). The **DQ score** (0\u2013100) measures completeness and validity \u2014 watch it rise from 'Before' to 'After'."
       }
     },
     {
       "id": 1,
       "type": "bargauge",
       "title": "Final DQ Score per Source (Post-Pipeline)",
-      "description": "Data-quality score after the full pipeline. Each bar is one source. Green ≥ 80 = production-ready, yellow 60–80 = usable, red < 60 = needs attention.",
+      "description": "Data-quality score after the full pipeline. Each bar is one source. Green \u2265 80 = production-ready, yellow 60\u201380 = usable, red < 60 = needs attention.",
       "gridPos": {
         "x": 0,
         "y": 3,
@@ -119,7 +119,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "label_replace(max by (source) (etl_dq_score_post{source=~\"$source\",source=~\"usda/.*|off|openfda|esci\"}), \"src\", \"$1\", \"source\", \"(.*)\") or label_replace(max by (source_name) (etl_dq_score_post{source_name=~\"$source\"}), \"src\", \"$1\", \"source_name\", \"(.*)\")",
+          "expr": "label_replace(max by (source) (max_over_time(etl_dq_score_post{source=~\"$source\",source=~\"usda/.*|off|openfda|esci\"}[7d])), \"src\", \"$1\", \"source\", \"(.*)\") or label_replace(max by (source_name) (max_over_time(etl_dq_score_post{source_name=~\"$source\"}[7d])), \"src\", \"$1\", \"source_name\", \"(.*)\")",
           "legendFormat": "{{src}}",
           "instant": true
         }
@@ -129,7 +129,7 @@
       "id": 9,
       "type": "bargauge",
       "title": "LLM Cost per Source (USD)",
-      "description": "Cumulative spend on LLM enrichment calls (tier S3) per source. The pipeline prefers cheaper tiers (S1 rules, S2 KNN) first, so this should stay small — watch for spikes that indicate S1/S2 are failing.",
+      "description": "Cumulative spend on LLM enrichment calls (tier S3) per source. The pipeline prefers cheaper tiers (Semantic Mapping, KNN) first, so this should stay small \u2014 watch for spikes that indicate S1/S2 are failing.",
       "gridPos": {
         "x": 0,
         "y": 27,
@@ -160,7 +160,7 @@
           "unit": "currencyUSD",
           "decimals": 4,
           "min": 0,
-          "noValue": "No LLM calls yet — S1/S2 resolved every row (this is the healthy case ✔)",
+          "noValue": "No LLM calls yet \u2014 S1/S2 resolved every row (this is the healthy case \u2714)",
           "color": {
             "mode": "thresholds"
           },
@@ -189,7 +189,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "label_replace(max by (source) (etl_llm_cost_usd_total{source=~\"$source\",source=~\"usda/.*|off|openfda|esci\"} > 0), \"src\", \"$1\", \"source\", \"(.*)\") or label_replace(max by (source_name) (etl_llm_cost_usd_total{source_name=~\"$source\"} > 0), \"src\", \"$1\", \"source_name\", \"(.*)\")",
+          "expr": "label_replace(max by (source) (max_over_time(etl_llm_cost_usd_total{source=~\"$source\",source=~\"usda/.*|off|openfda|esci\"}[90d]) > 0), \"src\", \"$1\", \"source\", \"(.*)\") or label_replace(max by (source_name) (max_over_time(etl_llm_cost_usd_total{source_name=~\"$source\"}[90d]) > 0), \"src\", \"$1\", \"source_name\", \"(.*)\")",
           "legendFormat": "{{src}}",
           "instant": true
         }
@@ -199,7 +199,7 @@
       "id": 2,
       "type": "barchart",
       "title": "DQ Score: Before vs After Pipeline",
-      "description": "Post adds enrichment cols (primary_category, allergens, dietary_tags, is_organic) to the completeness denominator — if enrichment leaves them null, post < pre even though more columns were produced.",
+      "description": "Post adds enrichment cols (primary_category, allergens, dietary_tags, is_organic) to the completeness denominator \u2014 if enrichment leaves them null, post < pre even though more columns were produced.",
       "gridPos": {
         "x": 0,
         "y": 9,
@@ -281,7 +281,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "label_replace(max by (source) (etl_dq_score_pre{source=~\"usda/.*|off|openfda|esci\"}), \"src\", \"$1\", \"source\", \"(.*)\")",
+          "expr": "label_replace(max by (source) (max_over_time(etl_dq_score_pre{source=~\"usda/.*|off|openfda|esci\"}[7d])), \"src\", \"$1\", \"source\", \"(.*)\")",
           "format": "table",
           "instant": true
         },
@@ -291,7 +291,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "label_replace(max by (source) (etl_dq_score_post{source=~\"usda/.*|off|openfda|esci\"}), \"src\", \"$1\", \"source\", \"(.*)\")",
+          "expr": "label_replace(max by (source) (max_over_time(etl_dq_score_post{source=~\"usda/.*|off|openfda|esci\"}[7d])), \"src\", \"$1\", \"source\", \"(.*)\")",
           "format": "table",
           "instant": true
         }
@@ -381,7 +381,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "S1 rules"
+              "options": "Semantic Mapping"
             },
             "properties": [
               {
@@ -396,7 +396,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "S2 KNN"
+              "options": "KNN"
             },
             "properties": [
               {
@@ -411,7 +411,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "S3 LLM"
+              "options": "LLM"
             },
             "properties": [
               {
@@ -447,7 +447,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "label_replace(sum(max by (run_id) (etl_enrichment_s1_resolved)), \"tier\", \"S1 rules\", \"\", \"\") or label_replace(sum(max by (run_id) (etl_enrichment_s2_resolved)), \"tier\", \"S2 KNN\", \"\", \"\") or label_replace(sum(max by (run_id) (etl_enrichment_s3_resolved)), \"tier\", \"S3 LLM\", \"\", \"\") or label_replace(sum(max by (run_id) (etl_enrichment_unresolved)), \"tier\", \"Unresolved\", \"\", \"\")",
+          "expr": "label_replace(sum(max by (run_id) (max_over_time(etl_enrichment_s1_resolved[90d]))), \"tier\", \"Semantic Mapping\", \"\", \"\") or label_replace(sum(max by (run_id) (max_over_time(etl_enrichment_s2_resolved[90d]))), \"tier\", \"KNN\", \"\", \"\") or label_replace(sum(max by (run_id) (max_over_time(etl_enrichment_s3_resolved[90d]))), \"tier\", \"LLM\", \"\", \"\") or label_replace(sum(max by (run_id) (max_over_time(etl_enrichment_unresolved[90d]))), \"tier\", \"Unresolved\", \"\", \"\")",
           "format": "time_series",
           "instant": true,
           "legendFormat": "{{tier}}"
@@ -501,7 +501,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "label_replace(max by (source) (etl_rows_in{source=~\"$source\",source=~\"usda/.*|off|openfda|esci\"}), \"src\", \"$1\", \"source\", \"(.*)\") or label_replace(max by (source_name) (etl_rows_in{source_name=~\"$source\"}), \"src\", \"$1\", \"source_name\", \"(.*)\")",
+          "expr": "label_replace(max by (source) (max_over_time(etl_rows_in{source=~\"$source\",source=~\"usda/.*|off|openfda|esci\"}[7d])), \"src\", \"$1\", \"source\", \"(.*)\") or label_replace(max by (source_name) (max_over_time(etl_rows_in{source_name=~\"$source\"}[7d])), \"src\", \"$1\", \"source_name\", \"(.*)\")",
           "legendFormat": "{{src}}",
           "instant": true
         }
@@ -553,7 +553,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "label_replace(max by (source) (etl_rows_out{source=~\"$source\",source=~\"usda/.*|off|openfda|esci\"}), \"src\", \"$1\", \"source\", \"(.*)\") or label_replace(max by (source_name) (etl_rows_out{source_name=~\"$source\"}), \"src\", \"$1\", \"source_name\", \"(.*)\")",
+          "expr": "label_replace(max by (source) (max_over_time(etl_rows_out{source=~\"$source\",source=~\"usda/.*|off|openfda|esci\"}[7d])), \"src\", \"$1\", \"source\", \"(.*)\") or label_replace(max by (source_name) (max_over_time(etl_rows_out{source_name=~\"$source\"}[7d])), \"src\", \"$1\", \"source_name\", \"(.*)\")",
           "legendFormat": "{{src}}",
           "instant": true
         }
@@ -621,7 +621,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "label_replace(max by (source) (etl_rows_quarantined{source=~\"$source\",source=~\"usda/.*|off|openfda|esci\"}), \"src\", \"$1\", \"source\", \"(.*)\") or label_replace(max by (source_name) (etl_rows_quarantined{source_name=~\"$source\"}), \"src\", \"$1\", \"source_name\", \"(.*)\")",
+          "expr": "label_replace(max by (source) (max_over_time(etl_rows_quarantined{source=~\"$source\",source=~\"usda/.*|off|openfda|esci\"}[7d])), \"src\", \"$1\", \"source\", \"(.*)\") or label_replace(max by (source_name) (max_over_time(etl_rows_quarantined{source_name=~\"$source\"}[7d])), \"src\", \"$1\", \"source_name\", \"(.*)\")",
           "legendFormat": "{{src}}",
           "instant": true
         }
@@ -673,7 +673,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "label_replace(max by (source) (etl_duration_seconds{source=~\"$source\",source=~\"usda/.*|off|openfda|esci\"}), \"src\", \"$1\", \"source\", \"(.*)\") or label_replace(max by (source_name) (etl_duration_seconds{source_name=~\"$source\"}), \"src\", \"$1\", \"source_name\", \"(.*)\")",
+          "expr": "label_replace(max by (source) (max_over_time(etl_duration_seconds{source=~\"$source\",source=~\"usda/.*|off|openfda|esci\"}[7d])), \"src\", \"$1\", \"source\", \"(.*)\") or label_replace(max by (source_name) (max_over_time(etl_duration_seconds{source_name=~\"$source\"}[7d])), \"src\", \"$1\", \"source_name\", \"(.*)\")",
           "legendFormat": "{{src}}",
           "instant": true
         }
@@ -683,7 +683,7 @@
       "id": 10,
       "type": "bargauge",
       "title": "LLM Calls per Source (count)",
-      "description": "Total LLM API calls made during the run. The cost cascade aims to keep this at zero — calls only happen when S1 rules and S2 KNN can't resolve a row.",
+      "description": "Total LLM API calls made during the run. The cost cascade aims to keep this at zero \u2014 calls only happen when Semantic Mapping and KNN can't resolve a row.",
       "gridPos": {
         "x": 12,
         "y": 27,
@@ -714,7 +714,7 @@
           "unit": "short",
           "decimals": 0,
           "min": 0,
-          "noValue": "No LLM calls yet — cheaper tiers (S1/S2) resolved every row ✔",
+          "noValue": "No LLM calls yet \u2014 cheaper tiers (S1/S2) resolved every row \u2714",
           "color": {
             "mode": "thresholds"
           },
@@ -743,7 +743,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "label_replace(max by (source) (etl_llm_calls_total{source=~\"$source\",source=~\"usda/.*|off|openfda|esci\"} > 0), \"src\", \"$1\", \"source\", \"(.*)\") or label_replace(max by (source_name) (etl_llm_calls_total{source_name=~\"$source\"} > 0), \"src\", \"$1\", \"source_name\", \"(.*)\")",
+          "expr": "label_replace(max by (source) (max_over_time(etl_llm_calls_total{source=~\"$source\",source=~\"usda/.*|off|openfda|esci\"}[90d]) > 0), \"src\", \"$1\", \"source\", \"(.*)\") or label_replace(max by (source_name) (max_over_time(etl_llm_calls_total{source_name=~\"$source\"}[90d]) > 0), \"src\", \"$1\", \"source_name\", \"(.*)\")",
           "legendFormat": "{{src}}",
           "instant": true
         }
@@ -753,7 +753,7 @@
       "id": 11,
       "type": "bargauge",
       "title": "Corpus Size per Source (current)",
-      "description": "FAISS KNN corpus size after the latest run per source. Every run adds S1/S2/S3-resolved rows back to the corpus, so future runs match more categories deterministically — the cost cascade gets cheaper as these bars grow.",
+      "description": "FAISS KNN corpus size after the latest run per source. Every run adds S1/S2/S3-resolved rows back to the corpus, so future runs match more categories deterministically \u2014 the cost cascade gets cheaper as these bars grow.",
       "gridPos": {
         "x": 0,
         "y": 33,
@@ -796,7 +796,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "max by (source) (etl_corpus_size_after{source=~\"$source\",source=~\"usda/.*|off|openfda|esci\"} > 0)",
+          "expr": "max by (source) (max_over_time(etl_corpus_size_after{source=~\"$source\",source=~\"usda/.*|off|openfda|esci\"}[90d]) > 0)",
           "legendFormat": "{{source}}",
           "instant": true
         }
@@ -856,7 +856,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "max by (source, block_name, block_seq) (etl_block_duration_ms{source=~\"$source\",source=~\"usda/.*|off|openfda|esci\"})",
+          "expr": "max by (source, block_name, block_seq) (max_over_time(etl_block_duration_ms{source=~\"$source\",source=~\"usda/.*|off|openfda|esci\"}[7d]))",
           "format": "table",
           "instant": true
         }

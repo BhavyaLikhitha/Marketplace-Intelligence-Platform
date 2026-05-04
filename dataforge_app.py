@@ -4,6 +4,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
+from dotenv import load_dotenv
+load_dotenv()
+
 import streamlit as st
 
 st.set_page_config(
@@ -618,7 +621,6 @@ with st.sidebar:
 
     st.markdown('<span class="nav-section-label">Analytics</span>', unsafe_allow_html=True)
     _nav_btn("Observability",    "observability",  "📊")
-    _nav_btn("MLflow",           "mlflow",         "📈", "EXP", "exp")
     _nav_btn("Search",           "search",         "🔍")
     _nav_btn("Recommendations",  "recs",           "💡")
 
@@ -645,9 +647,6 @@ elif page == "enrichment":
 elif page == "observability":
     from src.ui.pages.observability import render_observability
     render_observability()
-elif page == "mlflow":
-    from src.ui.pages.mlflow_tracker import render_mlflow
-    render_mlflow()
 elif page == "search":
     from src.ui.pages.search import render_search
     render_search()
