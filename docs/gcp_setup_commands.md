@@ -94,8 +94,8 @@ gcloud storage hmac create 606310505186-compute@developer.gserviceaccount.com \
 ```
 **Credentials (already created — do not regenerate):**
 ```
-GCS_ACCESS_KEY : REMOVED_GCS_ACCESS_KEY 
-GCS_SECRET_KEY : REMOVED_GCS_SECRET_KEY
+GCS_ACCESS_KEY : (set GCS_ACCESS_KEY env var)
+GCS_SECRET_KEY : (set GCS_SECRET_KEY env var)
 GCS_ENDPOINT   : https://storage.googleapis.com
 ```
 

@@ -30,8 +30,8 @@ from airflow import DAG
 from airflow.operators.python import PythonOperator
 from botocore.config import Config
 
-GCS_ACCESS_KEY  = os.getenv("GCS_ACCESS_KEY", "REMOVED_GCS_ACCESS_KEY ")
-GCS_SECRET_KEY  = os.getenv("GCS_SECRET_KEY", "REMOVED_GCS_SECRET_KEY")
+GCS_ACCESS_KEY  = os.getenv("GCS_ACCESS_KEY")
+GCS_SECRET_KEY  = os.getenv("GCS_SECRET_KEY")
 GCS_ENDPOINT    = os.getenv("GCS_ENDPOINT", "https://storage.googleapis.com")
 BRONZE_BUCKET   = os.getenv("BRONZE_BUCKET", "mip-bronze-2024")
 WATERMARK_KEY   = "_watermarks/off_watermark.json"

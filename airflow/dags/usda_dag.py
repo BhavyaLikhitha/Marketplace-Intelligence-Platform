@@ -16,7 +16,7 @@ from airflow import DAG
 from airflow.operators.python import PythonOperator
 from botocore.config import Config
 
-USDA_API_KEY  = os.getenv("USDA_API_KEY", "REMOVED_USDA_API_KEY")
+USDA_API_KEY  = os.getenv("USDA_API_KEY")
 USDA_LIST_URL = "https://api.nal.usda.gov/fdc/v1/foods/list"
 PAGE_SIZE     = 200
 FLUSH_EVERY   = 50   # write to GCS every 50 pages (10k records) to avoid OOM
@@ -25,8 +25,8 @@ MAX_PAGE      = 500  # API hard limit per dataType query
 # Each dataType gets its own 500-page quota → ~100k records each
 DATA_TYPES = ["Branded", "Foundation", "SR Legacy", "Survey (FNDDS)"]
 
-GCS_ACCESS_KEY = os.getenv("GCS_ACCESS_KEY", "REMOVED_GCS_ACCESS_KEY ")
-GCS_SECRET_KEY = os.getenv("GCS_SECRET_KEY", "REMOVED_GCS_SECRET_KEY")
+GCS_ACCESS_KEY = os.getenv("GCS_ACCESS_KEY")
+GCS_SECRET_KEY = os.getenv("GCS_SECRET_KEY")
 GCS_ENDPOINT   = os.getenv("GCS_ENDPOINT", "https://storage.googleapis.com")
 BRONZE_BUCKET  = os.getenv("BRONZE_BUCKET", "mip-bronze-2024")
 

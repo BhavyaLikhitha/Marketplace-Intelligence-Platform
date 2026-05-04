@@ -3,8 +3,8 @@
 # Run after kafka-connect container is healthy: bash scripts/register_connectors.sh
 
 CONNECT_URL="http://localhost:8083"
-GCS_ACCESS_KEY="${GCS_ACCESS_KEY:-REMOVED_GCS_ACCESS_KEY }"
-GCS_SECRET_KEY="${GCS_SECRET_KEY:-REMOVED_GCS_SECRET_KEY}"
+GCS_ACCESS_KEY="${GCS_ACCESS_KEY}"
+GCS_SECRET_KEY="${GCS_SECRET_KEY}"
 BRONZE_BUCKET="${BRONZE_BUCKET:-mip-bronze-2024}"
 
 echo "Waiting for Kafka Connect to be ready..."
