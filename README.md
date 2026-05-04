@@ -23,6 +23,12 @@ MIP is a production-grade data platform that eliminates that manual work. A thre
 
 ---
 
+<p align="center">
+  <img src="dashboard.png" alt="MIP Dashboard" width="90%"/>
+</p>
+
+---
+
 ## 📋 Table of Contents
 
 1. [Project Overview & Context](#1-project-overview--context)
@@ -298,16 +304,6 @@ FastAPI application at `:8001` exposing 7 MCP-style tool endpoints backed by Pro
 | POST | `/tools/dq_trend` | DQ score delta trend for a source over N runs |
 | GET | `/docs` | Swagger UI |
 
-### Streamlit Dashboard
-
-Entry point: `poetry run streamlit run app.py` → `http://localhost:8501`
-
-| Mode | What It Shows |
-|:---|:---|
-| **Pipeline** | 7-node wizard with HITL gates; executes one node at a time via `run_step()`. Schema analysis → YAML preview → block execution → DQ scoring → save output. |
-| **Observability** | Multi-turn chatbot over run logs with refresh button and cited run ID expanders. Grafana dashboard screenshot card with link to live snapshot. |
-
----
 
 ## 7. ⚙️ Setup & Installation
 
@@ -487,15 +483,3 @@ All LLM calls route through LiteLLM. Swapping the entire platform to a different
 7. **No streaming anomaly replay.** When a run is flagged as anomalous, an analyst must manually re-run it after investigation. There is no auto-retry path or circuit breaker.
 
 ---
-
-## 👥 Team Members
-
-| Member | Contributions |
-|:---|:---|
-| **Bhavya** | Three-agent LangGraph flow (Agents 1–3), YAML mapping I/O layer, Redis cache short-circuit with schema fingerprint, SQLite fallback, full cacheable blob write in `plan_sequence_node`, chunked streaming runner with `__generated__` sentinel expansion |
-| **Aqeel** | Data Quality Observability plane end-to-end — `RunLogWriter`, `MetricsExporter`, `AnomalyDetector`, `chunker.py`, `kafka_to_pg.py`, FastAPI MCP server; three-tier enrichment cascade design with safety boundary; Airflow DAG chain |
-| **Deepika** | Schema analyzer, domain schema registration, bootstrap path for CLI, enrichment column extensions (`allergens`, `primary_category`, `dietary_tags`, `is_organic`, DQ columns), per-domain schema JSON on first run, project documentation and Codelabs |
-
----
-
-*DAMG 7245: Big Data and Intelligent Analytics — Spring 2026 | Northeastern University | Group 5*
