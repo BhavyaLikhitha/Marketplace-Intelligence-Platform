@@ -45,7 +45,8 @@ def _infer_provider(model: str) -> str:
 _ORCHESTRATOR_MODEL  = os.environ.get("ORCHESTRATOR_LLM",  "deepseek/deepseek-chat")
 _CODEGEN_MODEL       = os.environ.get("CODEGEN_LLM",       "deepseek/deepseek-chat")
 _ENRICHMENT_MODEL    = os.environ.get("ENRICHMENT_LLM",    "groq/llama-3.1-8b-instant")
-_CRITIC_MODEL        = os.environ.get("CRITIC_LLM",        "anthropic/claude-sonnet-4-6")
+# _CRITIC_MODEL      = os.environ.get("CRITIC_LLM",        "anthropic/claude-sonnet-4-6")  # requires ANTHROPIC_API_KEY
+_CRITIC_MODEL        = os.environ.get("CRITIC_LLM",        "groq/llama-3.1-8b-instant")
 _OBSERVABILITY_MODEL = os.environ.get("OBSERVABILITY_LLM", "groq/llama-3.1-8b-instant")
 
 
